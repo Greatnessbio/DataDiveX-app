@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 from datetime import datetime, timedelta
+import json
 
 st.set_page_config(page_title="SearchSift", page_icon="🔍", layout="wide")
 
@@ -21,8 +22,13 @@ def serper_search(query, num_results, start_date, end_date):
         'X-API-KEY': SERPER_API_KEY,
         'Content-Type': 'application/json'
     }
-    response = requests.post(url, json=payload, headers=headers)
-    return response.json()
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        response.raise_for_status()  # Raise an exception for bad status codes
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        st.error(f"Error occurred while fetching results: {str(e)}")
+        return None
 
 def login():
     st.title("Login to SearchSift")
@@ -64,32 +70,43 @@ def main():
                 serper_results = serper_search(search_query, num_results, formatted_start_date, formatted_end_date)
 
                 st.subheader("Search Results")
-                if isinstance(serper_results, dict) and "organic" in serper_results:
-                    for i, result in enumerate(serper_results["organic"][:num_results]):
-                        col1, col2 = st.columns([0.1, 0.9])
-                        with col1:
-                            st.checkbox(f"Select {i+1}", key=f"checkbox_{i}")
-                        with col2:
-                            st.write(f"**{result['title']}**")
-                            st.write(result['snippet'])
-                            st.write(f"[Link]({result['link']})")
-                            st.write("---")
+                if serper_results:
+                    if "organic" in serper_results and serper_results["organic"]:
+                        for i, result in enumerate(serper_results["organic"][:num_results]):
+                            col1, col2 = st.columns([0.1, 0.9])
+                            with col1:
+                                st.checkbox(f"Select {i+1}", key=f"checkbox_{i}")
+                            with col2:
+                                st.write(f"**{result['title']}**")
+                                st.write(result.get('snippet', 'No snippet available'))
+                                st.write(f"[Link]({result['link']})")
+                                st.write("---")
+                    else:
+                        st.warning("No organic results found in Serper search.")
+                    
+                    # Debug information
+                    st.subheader("Debug Information")
+                    st.json(serper_results)
                 else:
-                    st.warning("No organic results found in Serper search.")
+                    st.error("Failed to fetch search results. Please check your API key and try again.")
 
             if st.button("Process Selected Results"):
-                selected_results = [
-                    result for i, result in enumerate(serper_results["organic"][:num_results])
-                    if st.session_state[f"checkbox_{i}"]
-                ]
-                st.subheader("Selected Results for Further Processing")
-                for result in selected_results:
-                    st.write(f"**{result['title']}**")
-                    st.write(result['snippet'])
-                    st.write(f"[Link]({result['link']})")
-                    st.write("---")
-                
-                # Here you can add further processing steps for the selected results
+                if serper_results and "organic" in serper_results:
+                    selected_results = [
+                        result for i, result in enumerate(serper_results["organic"][:num_results])
+                        if st.session_state.get(f"checkbox_{i}", False)
+                    ]
+                    st.subheader("Selected Results for Further Processing")
+                    if selected_results:
+                        for result in selected_results:
+                            st.write(f"**{result['title']}**")
+                            st.write(result.get('snippet', 'No snippet available'))
+                            st.write(f"[Link]({result['link']})")
+                            st.write("---")
+                    else:
+                        st.warning("No results selected. Please select at least one result to process.")
+                else:
+                    st.warning("No results available to process. Please perform a search first.")
 
 if __name__ == "__main__":
     main()
