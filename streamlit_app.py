@@ -15,7 +15,7 @@ except KeyError:
     st.stop()
 
 try:
-    SERP_API_KEY = st.secrets["serpapi_api_key"]
+    SERP_API_KEY = st.secrets["serpapi"]["api_key"]
 except KeyError:
     st.error("Please set up 'serpapi_api_key' in your Streamlit secrets.")
     st.stop()
