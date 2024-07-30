@@ -17,12 +17,12 @@ except KeyError as e:
   st.stop()
 
 @st.cache_data(ttl=3600)
-def google_trends_search(query, start_date, end_date):
+def google_trends_search(query, timeframe):
   params = {
       "engine": "google_trends",
       "q": query,
       "data_type": "TIMESERIES",
-      "date": f"{start_date} {end_date}",
+      "date": timeframe,
       "api_key": SERP_API_KEY
   }
   
@@ -33,14 +33,38 @@ def google_trends_search(query, start_date, end_date):
       data = response.json()
       if "interest_over_time" in data:
           df = pd.DataFrame(data["interest_over_time"]["timeline_data"])
-          df['date'] = pd.to_datetime(df['date'].apply(lambda x: x.split('–')[0].strip()))
-          df['value'] = df['values'].apply(lambda x: x[0]['extracted_value'])
+          df['date'] = pd.to_datetime(df['date'].apply(lambda x: x.split('T')[0]))
+          df['value'] = df['values'].apply(lambda x: x[0]['value'])
           return df[['date', 'value']]
       else:
           st.warning("No trend data available for the given query and time range.")
           return None
   except requests.exceptions.RequestException as e:
       st.error(f"Error fetching data: {e}")
+      return None
+
+@st.cache_data(ttl=3600)
+def get_related_queries(query, timeframe):
+  params = {
+      "engine": "google_trends",
+      "q": query,
+      "data_type": "RELATED_QUERIES",
+      "date": timeframe,
+      "api_key": SERP_API_KEY
+  }
+  
+  try:
+      response = requests.get("https://serpapi.com/search", params=params)
+      response.raise_for_status()
+      
+      data = response.json()
+      if "related_queries" in data:
+          return data["related_queries"]
+      else:
+          st.warning("No related queries available for the given query and time range.")
+          return None
+  except requests.exceptions.RequestException as e:
+      st.error(f"Error fetching related queries: {e}")
       return None
 
 def login():
@@ -70,19 +94,21 @@ def main():
       st.sidebar.header("Search Parameters")
       search_query = st.sidebar.text_input("Enter search term")
       
-      end_date = datetime.now().date()
-      start_date = end_date - timedelta(days=30)  # Default to last 30 days
-      start_date = st.sidebar.date_input("Start date", start_date)
-      end_date = st.sidebar.date_input("End date", end_date)
+      timeframes = {
+          "Past 7 days": "now 7-d",
+          "Past 30 days": "today 1-m",
+          "Past 90 days": "today 3-m",
+          "Past 12 months": "today 12-m",
+          "Past 5 years": "today 5-y"
+      }
+      selected_timeframe = st.sidebar.selectbox("Select time range", list(timeframes.keys()))
 
       search_button = st.sidebar.button("Search")
 
       if search_button and search_query:
           with st.spinner("Fetching trend data..."):
-              formatted_start_date = start_date.strftime("%Y-%m-%d")
-              formatted_end_date = end_date.strftime("%Y-%m-%d")
-
-              trend_data = google_trends_search(search_query, formatted_start_date, formatted_end_date)
+              trend_data = google_trends_search(search_query, timeframes[selected_timeframe])
+              related_queries = get_related_queries(search_query, timeframes[selected_timeframe])
 
               if trend_data is not None and not trend_data.empty:
                   st.subheader(f"Google Trends for '{search_query}'")
@@ -105,6 +131,16 @@ def main():
                   # Display the data
                   st.subheader("Trend Data")
                   st.dataframe(trend_data)
+
+                  # Display related queries
+                  if related_queries:
+                      st.subheader("Related Queries")
+                      if 'top' in related_queries:
+                          st.write("Top Related Queries:")
+                          st.dataframe(pd.DataFrame(related_queries['top']))
+                      if 'rising' in related_queries:
+                          st.write("Rising Related Queries:")
+                          st.dataframe(pd.DataFrame(related_queries['rising']))
 
                   # Allow user to download the data
                   csv = trend_data.to_csv(index=False)
