@@ -1,5 +1,5 @@
 import streamlit as st
-from pytrends.request import TrendReq
+import requests
 from datetime import datetime, timedelta
 import pandas as pd
 import plotly.express as px
@@ -9,25 +9,32 @@ st.set_page_config(page_title="TrendSift", page_icon="📊", layout="wide")
 # Load credentials from secrets
 USERNAME = st.secrets["credentials"]["username"]
 PASSWORD = st.secrets["credentials"]["password"]
+SERP_API_KEY = st.secrets["serpapi"]["api_key"]
 
 @st.cache_data(ttl=3600)
 def google_trends_search(query, start_date, end_date):
-    pytrends = TrendReq(hl='en-US', tz=360)
-    timeframe = f'{start_date} {end_date}'
+    params = {
+        "engine": "google_trends",
+        "q": query,
+        "data_type": "TIMESERIES",
+        "date": f"{start_date} {end_date}",
+        "api_key": SERP_API_KEY
+    }
     
-    try:
-        pytrends.build_payload([query], cat=0, timeframe=timeframe, geo='', gprop='')
-        df = pytrends.interest_over_time()
-        
-        if not df.empty:
-            df.reset_index(inplace=True)
-            df.columns = ['date', 'value', 'isPartial']
+    response = requests.get("https://serpapi.com/search", params=params)
+    
+    if response.status_code == 200:
+        data = response.json()
+        if "interest_over_time" in data:
+            df = pd.DataFrame(data["interest_over_time"]["timeline_data"])
+            df['date'] = pd.to_datetime(df['date'].apply(lambda x: x.split('–')[0].strip()))
+            df['value'] = df['values'].apply(lambda x: x[0]['extracted_value'])
             return df[['date', 'value']]
         else:
-            st.warning("No data available for the given query and time range.")
+            st.warning("No trend data available for the given query and time range.")
             return None
-    except Exception as e:
-        st.error(f"Error fetching data: {str(e)}")
+    else:
+        st.error(f"Error fetching data: {response.status_code}")
         return None
 
 def login():
