@@ -7,9 +7,18 @@ import plotly.express as px
 st.set_page_config(page_title="TrendSift", page_icon="📊", layout="wide")
 
 # Load credentials from secrets
-USERNAME = st.secrets["credentials"]["username"]
-PASSWORD = st.secrets["credentials"]["password"]
-SERP_API_KEY = st.secrets["serpapi"]["api_key"]
+try:
+    USERNAME = st.secrets["credentials"]["username"]
+    PASSWORD = st.secrets["credentials"]["password"]
+except KeyError:
+    st.error("Please set up 'credentials.username' and 'credentials.password' in your Streamlit secrets.")
+    st.stop()
+
+try:
+    SERP_API_KEY = st.secrets["serpapi_api_key"]
+except KeyError:
+    st.error("Please set up 'serpapi_api_key' in your Streamlit secrets.")
+    st.stop()
 
 @st.cache_data(ttl=3600)
 def google_trends_search(query, start_date, end_date):
