@@ -16,8 +16,9 @@ except KeyError:
 
 try:
     SERP_API_KEY = st.secrets["serpapi"]["api_key"]
+    st.write(f"API Key (first 5 characters): {SERP_API_KEY[:5]}...")
 except KeyError:
-    st.error("Please set up 'serpapi_api_key' in your Streamlit secrets.")
+    st.error("Please set up 'serpapi.api_key' in your Streamlit secrets.")
     st.stop()
 
 @st.cache_data(ttl=3600)
@@ -30,7 +31,12 @@ def google_trends_search(query, start_date, end_date):
         "api_key": SERP_API_KEY
     }
     
+    st.write("API Request Parameters:", params)
+    
     response = requests.get("https://serpapi.com/search", params=params)
+    
+    st.write(f"Response Status Code: {response.status_code}")
+    st.write(f"Response Content: {response.text[:500]}...")  # Display first 500 characters
     
     if response.status_code == 200:
         data = response.json()
