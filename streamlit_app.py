@@ -31,15 +31,22 @@ def google_trends_search(query, timeframe):
       response.raise_for_status()
       
       data = response.json()
+      st.write("Raw API response:", data)  # Debug print
+      
       if "interest_over_time" in data:
-          df = pd.DataFrame(data["interest_over_time"]["timeline_data"])
+          timeline_data = data["interest_over_time"].get("timeline_data", [])
+          if not timeline_data:
+              st.warning("No timeline data available in the API response.")
+              return None
+          
+          df = pd.DataFrame(timeline_data)
           df['date'] = pd.to_datetime(df['date'].apply(lambda x: x.split('T')[0]))
-          df['value'] = df['values'].apply(lambda x: x[0]['value'])
-          df['value'] = pd.to_numeric(df['value'], errors='coerce')  # Convert to numeric, replacing errors with NaN
-          df = df.dropna(subset=['value'])  # Remove any rows where 'value' is NaN
+          df['value'] = df['values'].apply(lambda x: x[0]['value'] if isinstance(x, list) and len(x) > 0 else x)
+          df['value'] = pd.to_numeric(df['value'], errors='coerce')
+          df = df.dropna(subset=['value'])
           return df[['date', 'value']]
       else:
-          st.warning("No trend data available for the given query and time range.")
+          st.warning("No interest_over_time data available in the API response.")
           return None
   except requests.exceptions.RequestException as e:
       st.error(f"Error fetching data: {e}")
@@ -115,6 +122,8 @@ def main():
               if trend_data is not None and not trend_data.empty:
                   st.subheader(f"Google Trends for '{search_query}'")
                   
+                  st.write(f"Number of data points: {len(trend_data)}")
+                  
                   # Create a line chart
                   fig = px.line(trend_data, x='date', y='value', title=f"Interest over time for '{search_query}'")
                   st.plotly_chart(fig)
@@ -142,10 +151,16 @@ def main():
                       st.subheader("Related Queries")
                       if 'top' in related_queries:
                           st.write("Top Related Queries:")
-                          st.dataframe(pd.DataFrame(related_queries['top']))
+                          top_df = pd.DataFrame(related_queries['top'])
+                          st.write(f"Number of top related queries: {len(top_df)}")
+                          st.dataframe(top_df)
                       if 'rising' in related_queries:
                           st.write("Rising Related Queries:")
-                          st.dataframe(pd.DataFrame(related_queries['rising']))
+                          rising_df = pd.DataFrame(related_queries['rising'])
+                          st.write(f"Number of rising related queries: {len(rising_df)}")
+                          st.dataframe(rising_df)
+                  else:
+                      st.warning("No related queries data available.")
 
                   # Allow user to download the data
                   csv = trend_data.to_csv(index=False)
