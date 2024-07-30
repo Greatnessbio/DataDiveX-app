@@ -1,61 +1,50 @@
 import streamlit as st
+import requests
+from datetime import datetime, timedelta
 import pandas as pd
 import plotly.express as px
-from pytrends.request import TrendReq
-from datetime import datetime, timedelta
-import time
-import random
 
 # Set up page config
-st.set_page_config(page_title="Google Trends Analyzer", page_icon="📈", layout="wide")
+st.set_page_config(page_title="TrendSift", page_icon="📊", layout="wide")
 
 # Load credentials from secrets
 try:
   USERNAME = st.secrets["credentials"]["username"]
   PASSWORD = st.secrets["credentials"]["password"]
-except KeyError:
-  st.error("Please set up 'credentials.username' and 'credentials.password' in your Streamlit secrets.")
+  SERP_API_KEY = st.secrets["serpapi"]["api_key"]
+except KeyError as e:
+  st.error(f"Missing secret: {e}. Please check your Streamlit secrets configuration.")
   st.stop()
 
-# Initialize PyTrends with a custom backoff_factor
-pytrends = TrendReq(hl='en-US', tz=360, timeout=(10,25), retries=2, backoff_factor=0.1)
-
 @st.cache_data(ttl=3600)
-def get_google_trends(keyword, timeframe):
-  max_retries = 3
-  for attempt in range(max_retries):
-      try:
-          pytrends.build_payload([keyword], cat=0, timeframe=timeframe, geo='', gprop='')
-          data = pytrends.interest_over_time()
-          return data
-      except Exception as e:
-          if attempt < max_retries - 1:
-              st.warning(f"Attempt {attempt + 1} failed. Retrying in {2 ** attempt} seconds...")
-              time.sleep(2 ** attempt + random.random())
-          else:
-              st.error(f"Failed to fetch data after {max_retries} attempts. Please try again later.")
-              return None
-
-@st.cache_data(ttl=3600)
-def get_related_topics(keyword):
+def google_trends_search(query, start_date, end_date):
+  params = {
+      "engine": "google_trends",
+      "q": query,
+      "data_type": "TIMESERIES",
+      "date": f"{start_date} {end_date}",
+      "api_key": SERP_API_KEY
+  }
+  
   try:
-      pytrends.build_payload([keyword], cat=0, timeframe='today 12-m', geo='', gprop='')
-      return pytrends.related_topics()[keyword]
-  except Exception as e:
-      st.error(f"Failed to fetch related topics: {str(e)}")
-      return None
-
-@st.cache_data(ttl=3600)
-def get_related_queries(keyword):
-  try:
-      pytrends.build_payload([keyword], cat=0, timeframe='today 12-m', geo='', gprop='')
-      return pytrends.related_queries()[keyword]
-  except Exception as e:
-      st.error(f"Failed to fetch related queries: {str(e)}")
+      response = requests.get("https://serpapi.com/search", params=params)
+      response.raise_for_status()
+      
+      data = response.json()
+      if "interest_over_time" in data:
+          df = pd.DataFrame(data["interest_over_time"]["timeline_data"])
+          df['date'] = pd.to_datetime(df['date'].apply(lambda x: x.split('–')[0].strip()))
+          df['value'] = df['values'].apply(lambda x: x[0]['extracted_value'])
+          return df[['date', 'value']]
+      else:
+          st.warning("No trend data available for the given query and time range.")
+          return None
+  except requests.exceptions.RequestException as e:
+      st.error(f"Error fetching data: {e}")
       return None
 
 def login():
-  st.title("Login to Google Trends Analyzer")
+  st.title("Login to TrendSift")
   with st.form("login_form"):
       username = st.text_input("Username")
       password = st.text_input("Password", type="password")
@@ -76,83 +65,59 @@ def main():
   if not st.session_state["logged_in"]:
       login()
   else:
-      st.title("Google Trends Analyzer")
+      st.title("TrendSift: Google Trends Analysis")
 
-      # User input
-      keyword = st.text_input("Enter a keyword or topic:", "artificial intelligence")
-      timeframes = {
-          "Past 7 days": "now 7-d",
-          "Past 30 days": "today 1-m",
-          "Past 90 days": "today 3-m",
-          "Past 12 months": "today 12-m",
-          "Past 5 years": "today 5-y"
-      }
-      selected_timeframe = st.selectbox("Select time range", list(timeframes.keys()))
+      st.sidebar.header("Search Parameters")
+      search_query = st.sidebar.text_input("Enter search term")
+      
+      end_date = datetime.now().date()
+      start_date = end_date - timedelta(days=30)  # Default to last 30 days
+      start_date = st.sidebar.date_input("Start date", start_date)
+      end_date = st.sidebar.date_input("End date", end_date)
 
-      if st.button("Analyze"):
-          with st.spinner("Fetching Google Trends data..."):
-              # Get trend data
-              trend_data = get_google_trends(keyword, timeframes[selected_timeframe])
-              
+      search_button = st.sidebar.button("Search")
+
+      if search_button and search_query:
+          with st.spinner("Fetching trend data..."):
+              formatted_start_date = start_date.strftime("%Y-%m-%d")
+              formatted_end_date = end_date.strftime("%Y-%m-%d")
+
+              trend_data = google_trends_search(search_query, formatted_start_date, formatted_end_date)
+
               if trend_data is not None and not trend_data.empty:
-                  # Plot trend data
-                  st.subheader(f"Interest Over Time for '{keyword}'")
-                  fig = px.line(trend_data, x=trend_data.index, y=keyword, title=f"Interest over time for '{keyword}'")
+                  st.subheader(f"Google Trends for '{search_query}'")
+                  
+                  # Create a line chart
+                  fig = px.line(trend_data, x='date', y='value', title=f"Interest over time for '{search_query}'")
                   st.plotly_chart(fig)
 
                   # Calculate and display statistics
                   st.subheader("Trend Statistics")
-                  avg_interest = trend_data[keyword].mean()
-                  max_interest = trend_data[keyword].max()
-                  min_interest = trend_data[keyword].min()
+                  avg_interest = trend_data['value'].mean()
+                  max_interest = trend_data['value'].max()
+                  min_interest = trend_data['value'].min()
                   
                   col1, col2, col3 = st.columns(3)
                   col1.metric("Average Interest", f"{avg_interest:.2f}")
                   col2.metric("Peak Interest", f"{max_interest:.2f}")
                   col3.metric("Lowest Interest", f"{min_interest:.2f}")
 
-                  # Get related topics
-                  related_topics = get_related_topics(keyword)
-                  if related_topics:
-                      st.subheader("Related Topics")
-                      if 'top' in related_topics:
-                          st.write("Top Related Topics:")
-                          st.dataframe(related_topics['top'].head())
-                      if 'rising' in related_topics:
-                          st.write("Rising Related Topics:")
-                          st.dataframe(related_topics['rising'].head())
+                  # Display the data
+                  st.subheader("Trend Data")
+                  st.dataframe(trend_data)
 
-                  # Get related queries
-                  related_queries = get_related_queries(keyword)
-                  if related_queries:
-                      st.subheader("Related Queries")
-                      if 'top' in related_queries:
-                          st.write("Top Related Queries:")
-                          st.dataframe(related_queries['top'].head())
-                      if 'rising' in related_queries:
-                          st.write("Rising Related Queries:")
-                          st.dataframe(related_queries['rising'].head())
-
-                  # Insights
-                  st.subheader("Insights")
-                  recent_trend = trend_data[keyword].iloc[-1] - trend_data[keyword].iloc[-2]
-                  if recent_trend > 0:
-                      st.write(f"📈 The interest in '{keyword}' is currently trending upwards.")
-                  elif recent_trend < 0:
-                      st.write(f"📉 The interest in '{keyword}' is currently trending downwards.")
-                  else:
-                      st.write(f"➡️ The interest in '{keyword}' is currently stable.")
-
-                  if max_interest == 100:
-                      peak_date = trend_data[trend_data[keyword] == 100].index[0]
-                      st.write(f"🔥 Peak interest was observed on {peak_date.date()}.")
-
-                  if related_queries and 'rising' in related_queries and not related_queries['rising'].empty:
-                      st.write("🚀 Consider incorporating these rising related queries in your content:")
-                      for query in related_queries['rising']['query'].head().tolist():
-                          st.write(f"- {query}")
+                  # Allow user to download the data
+                  csv = trend_data.to_csv(index=False)
+                  st.download_button(
+                      label="Download data as CSV",
+                      data=csv,
+                      file_name=f"{search_query}_trend_data.csv",
+                      mime="text/csv",
+                  )
+              elif trend_data is not None:
+                  st.warning("No data available for the given query and time range.")
               else:
-                  st.error("Failed to fetch trend data. Please try again later.")
+                  st.error("Failed to fetch trend data. Please check the error message above.")
 
 if __name__ == "__main__":
   main()
