@@ -35,6 +35,8 @@ def google_trends_search(query, timeframe):
           df = pd.DataFrame(data["interest_over_time"]["timeline_data"])
           df['date'] = pd.to_datetime(df['date'].apply(lambda x: x.split('T')[0]))
           df['value'] = df['values'].apply(lambda x: x[0]['value'])
+          df['value'] = pd.to_numeric(df['value'], errors='coerce')  # Convert to numeric, replacing errors with NaN
+          df = df.dropna(subset=['value'])  # Remove any rows where 'value' is NaN
           return df[['date', 'value']]
       else:
           st.warning("No trend data available for the given query and time range.")
@@ -119,14 +121,17 @@ def main():
 
                   # Calculate and display statistics
                   st.subheader("Trend Statistics")
-                  avg_interest = trend_data['value'].mean()
-                  max_interest = trend_data['value'].max()
-                  min_interest = trend_data['value'].min()
-                  
-                  col1, col2, col3 = st.columns(3)
-                  col1.metric("Average Interest", f"{avg_interest:.2f}")
-                  col2.metric("Peak Interest", f"{max_interest:.2f}")
-                  col3.metric("Lowest Interest", f"{min_interest:.2f}")
+                  if not trend_data['value'].empty:
+                      avg_interest = trend_data['value'].mean()
+                      max_interest = trend_data['value'].max()
+                      min_interest = trend_data['value'].min()
+                      
+                      col1, col2, col3 = st.columns(3)
+                      col1.metric("Average Interest", f"{avg_interest:.2f}")
+                      col2.metric("Peak Interest", f"{max_interest:.2f}")
+                      col3.metric("Lowest Interest", f"{min_interest:.2f}")
+                  else:
+                      st.warning("No numeric data available for statistics calculation.")
 
                   # Display the data
                   st.subheader("Trend Data")
