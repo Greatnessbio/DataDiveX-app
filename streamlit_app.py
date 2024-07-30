@@ -1,5 +1,5 @@
 import streamlit as st
-import requests
+from pytrends.request import TrendReq
 from datetime import datetime, timedelta
 import pandas as pd
 import plotly.express as px
@@ -12,41 +12,22 @@ PASSWORD = st.secrets["credentials"]["password"]
 
 @st.cache_data(ttl=3600)
 def google_trends_search(query, start_date, end_date):
-    url = "https://trends.google.com/trends/api/explore"
+    pytrends = TrendReq(hl='en-US', tz=360)
+    timeframe = f'{start_date} {end_date}'
     
-    params = {
-        "hl": "en-US",
-        "tz": "-480",
-        "req": {
-            "comparisonItem": [{
-                "keyword": query,
-                "geo": "",
-                "time": f"{start_date} {end_date}"
-            }],
-            "category": 0,
-            "property": ""
-        },
-        "tz": "-480"
-    }
-    
-    response = requests.get(url, params=params)
-    
-    if response.status_code == 200:
-        # The response starts with ")]}',\n" which we need to remove
-        clean_response = response.text[5:]
-        data = pd.read_json(clean_response)
+    try:
+        pytrends.build_payload([query], cat=0, timeframe=timeframe, geo='', gprop='')
+        df = pytrends.interest_over_time()
         
-        # Extract the time series data
-        time_series = data['default']['timelineData']
-        
-        # Convert to DataFrame
-        df = pd.DataFrame(time_series)
-        df['date'] = pd.to_datetime(df['time'].astype(int), unit='s')
-        df['value'] = df['value'].astype(int)
-        
-        return df
-    else:
-        st.error(f"Error fetching data: {response.status_code}")
+        if not df.empty:
+            df.reset_index(inplace=True)
+            df.columns = ['date', 'value', 'isPartial']
+            return df[['date', 'value']]
+        else:
+            st.warning("No data available for the given query and time range.")
+            return None
+    except Exception as e:
+        st.error(f"Error fetching data: {str(e)}")
         return None
 
 def login():
@@ -87,7 +68,7 @@ def main():
 
                 trend_data = google_trends_search(search_query, formatted_start_date, formatted_end_date)
 
-                if trend_data is not None:
+                if trend_data is not None and not trend_data.empty:
                     st.subheader(f"Google Trends for '{search_query}'")
                     
                     # Create a line chart
@@ -106,6 +87,8 @@ def main():
                         file_name=f"{search_query}_trend_data.csv",
                         mime="text/csv",
                     )
+                elif trend_data is not None:
+                    st.warning("No data available for the given query and time range.")
                 else:
                     st.error("Failed to fetch trend data. Please try again.")
 
