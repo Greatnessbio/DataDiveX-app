@@ -119,9 +119,8 @@ def get_jina_reader_content(url):
       time.sleep(3)  # 3-second delay between requests
       return response.json()
   except requests.exceptions.RequestException as e:
-      return {
-          'text': f"Failed to fetch content: {str(e)}",
-      }
+      st.error(f"Failed to fetch content from Jina: {str(e)}")
+      return None
 
 def login():
   st.title("Login to TrendSift+")
@@ -212,10 +211,10 @@ def main():
               st.session_state.processed_results = []
               for result in st.session_state.selected_results:
                   jina_content = get_jina_reader_content(result['Link']) 
-                  if isinstance(jina_content, dict):
-                      result['full_content'] = jina_content.get('text', 'No content available')
+                  if jina_content and 'text' in jina_content:
+                      result['full_content'] = jina_content['text']
                   else:
-                      result['full_content'] = jina_content
+                      result['full_content'] = "No content available or failed to fetch."
                   st.session_state.processed_results.append(result)
 
       # Display detailed results for selected items
