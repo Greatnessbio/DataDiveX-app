@@ -116,11 +116,7 @@ def get_jina_reader_content(url):
       response = http.get(jina_url, headers=headers)
       response.raise_for_status()
       time.sleep(3)  # 3-second delay between requests
-      content = response.json()
-      return {
-          'text': content.get('text', 'No content available'),
-          'summary': content.get('summary', 'No summary available')
-      }
+      return response.json()
   except requests.exceptions.RequestException as e:
       return {
           'text': f"Failed to fetch content: {str(e)}",
@@ -138,7 +134,7 @@ def login():
           if username == USERNAME and password == PASSWORD:
               st.session_state["logged_in"] = True
               st.success("Logged in successfully!")
-              st.experimental_rerun()
+              st.experimental_rerun()  # Refresh the page to show the main content
           else:
               st.error("Invalid username or password")
 
@@ -212,12 +208,11 @@ def main():
 
       if st.button("Process Selected Results"):
           # Process and scrape selected results
-          with st.spinner("Processing and summarizing selected results..."):
+          with st.spinner("Processing selected results..."):
               st.session_state.processed_results = []
               for result in st.session_state.selected_results:
                   jina_content = get_jina_reader_content(result['Link'])
                   result['full_content'] = jina_content['text']
-                  result['summary'] = jina_content['summary']
                   st.session_state.processed_results.append(result)
 
       # Display detailed results for selected items
@@ -226,7 +221,6 @@ def main():
           for i, result in enumerate(st.session_state.processed_results):
               st.write(f"**Title:** {result['Title']}")
               st.write(f"**Source:** {result['Source']}")
-              st.write(f"**Summary:** {result['summary']}")
               st.write(f"**Link:** [{result['Link']}]({result['Link']})")
               st.write("**Full Content:**")
               st.text_area(f"Content_{i}", result['full_content'], height=300)
