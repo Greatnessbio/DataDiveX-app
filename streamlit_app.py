@@ -158,48 +158,73 @@ def main():
   else:
       st.title("TrendSift+: Multi-Source Research Tool")
 
-      search_query = st.text_input("Enter search term")
-      search_button = st.button("Search")
+      st.sidebar.header("Search Parameters")
+      search_query = st.sidebar.text_input("Enter search term")
+      
+      search_types = ["Google Trends", "Serper Search", "Serper Scholar", "Exa Company", "Exa Research Paper", "Exa News", "Exa Tweet"]
+      selected_search_types = st.sidebar.multiselect("Select search types", search_types, default=["Serper Search", "Exa News"])
+      
+      timeframes = {
+          "Past 7 days": "now 7-d",
+          "Past 30 days": "today 1-m",
+          "Past 90 days": "today 3-m",
+          "Past 12 months": "today 12-m",
+          "Past 5 years": "today 5-y"
+      }
+      selected_timeframe = st.sidebar.selectbox("Select time range", list(timeframes.keys()))
+
+      search_button = st.sidebar.button("Search")
 
       if search_button and search_query:
           st.session_state.search_results = {} 
           
-          # Perform initial search
+          # Perform initial search and display quick results
           with st.spinner("Searching..."):
-              serper_results = serper_search(search_query, "search")
-              exa_results = exa_search(search_query, "news", 
-                                       (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
-                                       datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%fZ"))
-              
-              # Display quick table of results
-              st.subheader("Quick Results")
               quick_results = []
-              if serper_results and 'organic' in serper_results:
-                  quick_results.extend([{'Source': 'Serper', 'Title': r['title'], 'Link': r['link']} for r in serper_results['organic'][:5]])
-              if exa_results and 'results' in exa_results:
-                  quick_results.extend([{'Source': 'Exa', 'Title': r['title'], 'Link': r['url']} for r in exa_results['results'][:5]])
-              
-              st.table(pd.DataFrame(quick_results))
+              for search_type in selected_search_types:
+                  if search_type == "Google Trends":
+                      results = google_trends_search(search_query, timeframes[selected_timeframe])
+                      if results and "interest_over_time" in results:
+                          df = pd.DataFrame(results["interest_over_time"]["timeline_data"])
+                          df['date'] = pd.to_datetime(df['date'])
+                          df['value'] = df['values'].apply(lambda x: x[0]['value'])
+                          fig = px.line(df, x='date', y='value', title=f"Interest over time for '{search_query}'")
+                          st.plotly_chart(fig)
+                  elif search_type in ("Serper Search", "Serper Scholar"):
+                      results = serper_search(search_query, search_type.split()[-1].lower())
+                      if results and 'organic' in results:
+                          quick_results.extend([{'Source': search_type, 'Title': r['title'], 'Link': r['link']} for r in results['organic'][:5]])
+                  elif search_type.startswith("Exa"):
+                      category = search_type.split()[-1].lower()
+                      results = exa_search(search_query, category, 
+                                           (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+                                           datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%fZ"))
+                      if results and 'results' in results:
+                          quick_results.extend([{'Source': search_type, 'Title': r['title'], 'Link': r['url']} for r in results['results'][:5]])
+                  
+                  st.session_state.search_results[search_type] = results
+
+              if quick_results:
+                  st.subheader("Quick Results")
+                  st.table(pd.DataFrame(quick_results))
 
           # Process and scrape results
           with st.spinner("Processing and summarizing results..."):
-              st.session_state.search_results['Serper Search'] = process_search_results('Serper Search', serper_results)
-              st.session_state.search_results['Exa News'] = process_search_results('Exa News', exa_results)
+              for search_type in selected_search_types:
+                  if search_type != "Google Trends":
+                      st.session_state.search_results[search_type] = process_search_results(search_type, st.session_state.search_results[search_type])
 
           # Display detailed results
           st.subheader("Detailed Results")
           for search_type, results in st.session_state.search_results.items():
-              st.write(f"**{search_type}**")
-              for result in results:
-                  st.write(f"**Title:** {result.get('title', 'N/A')}")
-                  st.write(f"**Summary:** {result.get('summary', 'N/A')}")
-                  st.write(f"**Link:** [{result.get('link', result.get('url', '#'))}]({result.get('link', result.get('url', '#'))})")
-                  st.write(f"**Full Content:** {result.get('full_content', 'No full content available')[:500]}...")
-                  st.write("---")
-
-          # Keep the quick results table visible
-          st.subheader("Quick Results (for reference)")
-          st.table(pd.DataFrame(quick_results))
+              if search_type != "Google Trends":
+                  st.write(f"**{search_type}**")
+                  for result in results:
+                      st.write(f"**Title:** {result.get('title', 'N/A')}")
+                      st.write(f"**Summary:** {result.get('summary', 'N/A')}")
+                      st.write(f"**Link:** [{result.get('link', result.get('url', '#'))}]({result.get('link', result.get('url', '#'))})")
+                      st.write(f"**Full Content:** {result.get('full_content', 'No full content available')[:500]}...")
+                      st.write("---")
 
 if __name__ == "__main__":
   main()
