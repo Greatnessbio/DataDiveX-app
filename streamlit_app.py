@@ -215,14 +215,9 @@ def main():
               if quick_results:
                   st.subheader("Quick Results")
                   df = pd.DataFrame(quick_results)
-                  df['Selected'] = False
-                  edited_df = st.data_editor(df, column_config={
-                      "Selected": st.column_config.CheckboxColumn(default=False),
-                      "Source": st.column_config.TextColumn(width="medium"),
-                      "Title": st.column_config.TextColumn(width="large"),
-                      "Link": st.column_config.TextColumn(width="large")
-                  }, hide_index=True, use_container_width=True, num_rows="dynamic")
-                  st.session_state.selected_results = edited_df[edited_df['Selected']].to_dict('records')
+                  selected = st.multiselect("Select results to process:", df['Title'].tolist())
+                  st.session_state.selected_results = df[df['Title'].isin(selected)].to_dict('records')
+                  st.table(df)
 
           if st.button("Process Selected Results"):
               # Process and scrape selected results
@@ -233,7 +228,7 @@ def main():
                       result['summary'] = jina_content['summary']
 
               # Display detailed results for selected items
-              st.subheader("Detailed Results")
+              st.subheader("Detailed Results for Selected Items")
               for result in st.session_state.selected_results:
                   st.write(f"**Title:** {result['Title']}")
                   st.write(f"**Source:** {result['Source']}")
@@ -243,18 +238,23 @@ def main():
                       st.write(result['full_content'][:1000] + "...")
                   st.write("---")
 
-          # Display detailed results
+          # Display all detailed results
           st.subheader("All Detailed Results")
           for search_type, results in st.session_state.search_results.items():
               if search_type != "Google Trends":
                   st.write(f"**{search_type}**")
-                  for result in results:
-                      st.write(f"**Title:** {result.get('title', 'N/A')}")
-                      st.write(f"**Summary:** {result.get('summary', 'No summary available')}")
-                      st.write(f"**Link:** [{result.get('link', result.get('url', '#'))}]({result.get('link', result.get('url', '#'))})")
-                      with st.expander("Full Content"):
-                          st.write(result.get('full_content', 'No full content available')[:1000] + "...")
-                      st.write("---")
+                  if search_type in ("Serper Search", "Serper Scholar"):
+                      for result in results.get("organic", []):
+                          st.write(f"**Title:** {result.get('title', 'N/A')}")
+                          st.write(f"**Summary:** {result.get('snippet', 'No summary available')}")
+                          st.write(f"**Link:** [{result.get('link', '#')}]({result.get('link', '#')})")
+                          st.write("---")
+                  elif search_type.startswith("Exa"):
+                      for result in results.get("results", []):
+                          st.write(f"**Title:** {result.get('title', 'N/A')}")
+                          st.write(f"**Summary:** {result.get('description', 'No summary available')}")
+                          st.write(f"**Link:** [{result.get('url', '#')}]({result.get('url', '#')})")
+                          st.write("---")
 
 if __name__ == "__main__":
   main()
