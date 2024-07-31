@@ -211,7 +211,12 @@ def main():
 
               if quick_results:
                   st.subheader("Quick Results")
-                  st.table(pd.DataFrame(quick_results))
+                  df = pd.DataFrame(quick_results)
+                  st.dataframe(df, width=1000, column_config={
+                      "Source": st.column_config.TextColumn(width="medium"),
+                      "Title": st.column_config.TextColumn(width="large"),
+                      "Link": st.column_config.TextColumn(width="large")
+                  })
 
           # Process and scrape results
           with st.spinner("Processing and summarizing results..."):
