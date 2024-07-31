@@ -25,6 +25,8 @@ if 'search_results' not in st.session_state:
   st.session_state.search_results = {}
 if 'last_request_time' not in st.session_state:
   st.session_state.last_request_time = 0
+if 'selected_results' not in st.session_state:
+  st.session_state.selected_results = []
 
 # Simple rate limiting function
 def rate_limited(max_per_minute):
@@ -182,6 +184,7 @@ def main():
 
       if search_button and search_query:
           st.session_state.search_results = {} 
+          st.session_state.selected_results = []
           
           # Perform initial search and display quick results
           with st.spinner("Searching..."):
@@ -212,30 +215,33 @@ def main():
               if quick_results:
                   st.subheader("Quick Results")
                   df = pd.DataFrame(quick_results)
-                  st.dataframe(df, width=1000, column_config={
+                  df['Selected'] = False
+                  edited_df = st.data_editor(df, column_config={
+                      "Selected": st.column_config.CheckboxColumn(default=False),
                       "Source": st.column_config.TextColumn(width="medium"),
                       "Title": st.column_config.TextColumn(width="large"),
                       "Link": st.column_config.TextColumn(width="large")
-                  })
+                  }, hide_index=True, use_container_width=True)
+                  st.session_state.selected_results = edited_df[edited_df['Selected']].to_dict('records')
 
-          # Process and scrape results
-          with st.spinner("Processing and summarizing results..."):
-              for search_type in selected_search_types:
-                  if search_type != "Google Trends":
-                      st.session_state.search_results[search_type] = process_search_results(search_type, st.session_state.search_results[search_type])
+          if st.button("Process Selected Results"):
+              # Process and scrape selected results
+              with st.spinner("Processing and summarizing selected results..."):
+                  for result in st.session_state.selected_results:
+                      jina_content = jina_reader(result['Link'])
+                      result['full_content'] = jina_content['text']
+                      result['summary'] = jina_content['summary']
 
-          # Display detailed results
-          st.subheader("Detailed Results")
-          for search_type, results in st.session_state.search_results.items():
-              if search_type != "Google Trends":
-                  st.write(f"**{search_type}**")
-                  for result in results:
-                      st.write(f"**Title:** {result.get('title', 'N/A')}")
-                      st.write(f"**Summary:** {result.get('summary', 'No summary available')}")
-                      st.write(f"**Link:** [{result.get('link', result.get('url', '#'))}]({result.get('link', result.get('url', '#'))})")
-                      with st.expander("Full Content"):
-                          st.write(result.get('full_content', 'No full content available')[:1000] + "...")
-                      st.write("---")
+              # Display detailed results for selected items
+              st.subheader("Detailed Results")
+              for result in st.session_state.selected_results:
+                  st.write(f"**Title:** {result['Title']}")
+                  st.write(f"**Source:** {result['Source']}")
+                  st.write(f"**Summary:** {result['summary']}")
+                  st.write(f"**Link:** [{result['Link']}]({result['Link']})")
+                  with st.expander("Full Content"):
+                      st.write(result['full_content'][:1000] + "...")
+                  st.write("---")
 
 if __name__ == "__main__":
   main()
