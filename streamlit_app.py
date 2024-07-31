@@ -5,6 +5,8 @@ import plotly.express as px
 from datetime import datetime, timedelta
 import json
 import time
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib3.util.retry import Retry
 
 # Set up page config
 st.set_page_config(page_title="TrendSift+", page_icon="🔍", layout="wide")
@@ -30,22 +32,22 @@ if 'selected_results' not in st.session_state:
 if 'processed_results' not in st.session_state:
   st.session_state.processed_results = []
 
-# Simple rate limiting function
-def rate_limited(max_per_minute):
-  min_interval = 60.0 / max_per_minute
-  def decorator(func):
-      def wrapper(*args, **kwargs):
-          now = time.time()
-          if 'last_request_time' not in st.session_state:
-              st.session_state.last_request_time = 0
-          elapsed = now - st.session_state.last_request_time
-          left_to_wait = min_interval - elapsed
-          if left_to_wait > 0:
-              time.sleep(left_to_wait)
-          st.session_state.last_request_time = time.time()
-          return func(*args, **kwargs)
-      return wrapper
-  return decorator
+# Create a retry strategy
+retry_strategy = Retry(
+  total=3,
+  status_forcelist=[429, 500, 502, 503, 504],
+  allowed_methods=["HEAD", "GET", "OPTIONS"],
+  backoff_factor=1
+)
+adapter = HTTPAdapter(max_retries=retry_strategy)
+http = requests.Session()
+http.mount("https://", adapter)
+http.mount("http://", adapter)
+
+# User agent to mimic a browser
+HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+}
 
 @st.cache_data(ttl=3600)
 def google_trends_search(query, timeframe):
@@ -56,7 +58,7 @@ def google_trends_search(query, timeframe):
       "api_key": SERPAPI_KEY
   }
   try:
-      response = requests.get("https://serpapi.com/search", params=params)
+      response = http.get("https://serpapi.com/search", params=params)
       response.raise_for_status()
       return response.json()
   except requests.exceptions.RequestException as e:
@@ -72,7 +74,7 @@ def serper_search(query, search_type="search"):
       'Content-Type': 'application/json'
   }
   try:
-      response = requests.post(url, headers=headers, data=payload)
+      response = http.post(url, headers=headers, data=payload)
       response.raise_for_status()
       return response.json()
   except requests.exceptions.RequestException as e:
@@ -97,34 +99,22 @@ def exa_search(query, category, start_date, end_date):
       "endPublishedDate": end_date
   }
   try:
-      response = requests.post(url, json=payload, headers=headers)
+      response = http.post(url, json=payload, headers=headers)
       response.raise_for_status()
       return response.json()
   except requests.exceptions.RequestException as e:
       st.error(f"Error fetching data from Exa: {str(e)}")
       return None
 
-@rate_limited(20)
-def jina_reader(url):
-  jina_url = f'https://r.jina.ai/{url}'
-  headers = {
-      'Accept': 'application/json',
-      'X-With-Links-Summary': 'true'
-  }
+def get_jina_reader_content(url):
+  jina_url = f"https://r.jina.ai/{url}"
   try:
-      response = requests.get(jina_url, headers=headers)
+      response = http.get(jina_url, headers=HEADERS)
       response.raise_for_status()
-      content = response.json()
-      return {
-          'text': content.get('text', 'No content available'),
-          'summary': content.get('summary', 'No summary available')
-      }
+      time.sleep(3)  # 3-second delay between requests
+      return response.json()
   except requests.exceptions.RequestException as e:
-      st.warning(f"Error fetching content from Jina AI for {url}: {e}")
-      return {
-          'text': 'Error fetching content',
-          'summary': 'Error fetching summary'
-      }
+      return f"Failed to fetch content: {str(e)}"
 
 def login():
   st.title("Login to TrendSift+")
@@ -136,7 +126,7 @@ def login():
       if submit_button:
           if username == USERNAME and password == PASSWORD:
               st.session_state["logged_in"] = True
-              st.experimental_rerun()
+              st.success("Logged in successfully!")
           else:
               st.error("Invalid username or password")
 
@@ -199,23 +189,27 @@ def main():
       if st.session_state.quick_results:
           st.subheader("Quick Results")
           df = pd.DataFrame(st.session_state.quick_results)
-          df['Selected'] = False
+          df['Get Content'] = False
           edited_df = st.data_editor(df, column_config={
-              "Selected": st.column_config.CheckboxColumn(default=False),
+              "Get Content": st.column_config.CheckboxColumn(default=False),
               "Source": st.column_config.TextColumn(width="medium"),
               "Title": st.column_config.TextColumn(width="large"),
               "Link": st.column_config.TextColumn(width="large")
           }, hide_index=True, use_container_width=True, num_rows="dynamic")
-          st.session_state.selected_results = edited_df[edited_df['Selected']].to_dict('records')
+          st.session_state.selected_results = edited_df[edited_df['Get Content']].to_dict('records')
 
       if st.button("Process Selected Results"):
           # Process and scrape selected results
           with st.spinner("Processing and summarizing selected results..."):
               st.session_state.processed_results = []
               for result in st.session_state.selected_results:
-                  jina_content = jina_reader(result['Link'])
-                  result['full_content'] = jina_content['text']
-                  result['summary'] = jina_content['summary']
+                  jina_content = get_jina_reader_content(result['Link'])
+                  if isinstance(jina_content, dict):
+                      result['full_content'] = jina_content.get('text', 'No content available')
+                      result['summary'] = jina_content.get('summary', 'No summary available')
+                  else:
+                      result['full_content'] = jina_content
+                      result['summary'] = 'Error fetching summary'
                   st.session_state.processed_results.append(result)
 
       # Display detailed results for selected items
@@ -227,7 +221,7 @@ def main():
               st.write(f"**Summary:** {result['summary']}")
               st.write(f"**Link:** [{result['Link']}]({result['Link']})")
               st.write("**Full Content:**")
-              st.write(result['full_content'])
+              st.text_area("", result['full_content'], height=300)
               st.write("---")
 
 if __name__ == "__main__":
