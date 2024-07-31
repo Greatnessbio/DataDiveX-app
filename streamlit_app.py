@@ -108,10 +108,17 @@ def jina_reader(url):
   try:
       response = requests.get(jina_url, headers=headers)
       response.raise_for_status()
-      return response.json()
+      content = response.json()
+      return {
+          'text': content.get('text', 'No content available'),
+          'summary': content.get('summary', 'No summary available')
+      }
   except requests.exceptions.RequestException as e:
-      st.error(f"Error fetching content from Jina AI: {e}")
-      return None
+      st.warning(f"Error fetching content from Jina AI for {url}: {e}")
+      return {
+          'text': 'Error fetching content',
+          'summary': 'Error fetching summary'
+      }
 
 def process_search_results(search_type, results):
   processed_results = []
@@ -120,18 +127,16 @@ def process_search_results(search_type, results):
           url = result.get('link')
           if url:
               jina_content = jina_reader(url)
-              if jina_content:
-                  result['full_content'] = jina_content.get('text', '')
-                  result['summary'] = jina_content.get('summary', '')
+              result['full_content'] = jina_content['text']
+              result['summary'] = jina_content['summary']
           processed_results.append(result)
   elif search_type.startswith("Exa"):
       for result in results.get('results', []):
           url = result.get('url')
           if url:
               jina_content = jina_reader(url)
-              if jina_content:
-                  result['full_content'] = jina_content.get('text', '')
-                  result['summary'] = jina_content.get('summary', '')
+              result['full_content'] = jina_content['text']
+              result['summary'] = jina_content['summary']
           processed_results.append(result)
   return processed_results
 
@@ -221,9 +226,10 @@ def main():
                   st.write(f"**{search_type}**")
                   for result in results:
                       st.write(f"**Title:** {result.get('title', 'N/A')}")
-                      st.write(f"**Summary:** {result.get('summary', 'N/A')}")
+                      st.write(f"**Summary:** {result.get('summary', 'No summary available')}")
                       st.write(f"**Link:** [{result.get('link', result.get('url', '#'))}]({result.get('link', result.get('url', '#'))})")
-                      st.write(f"**Full Content:** {result.get('full_content', 'No full content available')[:500]}...")
+                      with st.expander("Full Content"):
+                          st.write(result.get('full_content', 'No full content available')[:1000] + "...")
                       st.write("---")
 
 if __name__ == "__main__":
