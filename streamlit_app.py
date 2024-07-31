@@ -4,6 +4,7 @@ import pandas as pd
 import plotly.express as px
 from datetime import datetime, timedelta
 import json
+from ratelimit import limits, sleep_and_retry
 
 # Set up page config
 st.set_page_config(page_title="TrendSift+", page_icon="🔍", layout="wide")
@@ -82,6 +83,44 @@ def exa_search(query, category, start_date, end_date):
       st.error(f"Error fetching data from Exa: {str(e)}")
       return None
 
+@sleep_and_retry
+@limits(calls=20, period=60)
+def jina_reader(url):
+  jina_url = f'https://r.jina.ai/{url}'
+  headers = {
+      'Accept': 'application/json',
+      'X-With-Links-Summary': 'true'
+  }
+  try:
+      response = requests.get(jina_url, headers=headers)
+      response.raise_for_status()
+      return response.json()
+  except requests.exceptions.RequestException as e:
+      st.error(f"Error fetching content from Jina AI: {e}")
+      return None
+
+def process_search_results(search_type, results):
+  processed_results = []
+  if search_type in ("Serper Search", "Serper Scholar"):
+      for result in results.get("organic", []):
+          url = result.get('link')
+          if url:
+              jina_content = jina_reader(url)
+              if jina_content:
+                  result['full_content'] = jina_content.get('text', '')
+                  result['summary'] = jina_content.get('summary', '')
+          processed_results.append(result)
+  elif search_type.startswith("Exa"):
+      for result in results.get('results', []):
+          url = result.get('url')
+          if url:
+              jina_content = jina_reader(url)
+              if jina_content:
+                  result['full_content'] = jina_content.get('text', '')
+                  result['summary'] = jina_content.get('summary', '')
+          processed_results.append(result)
+  return processed_results
+
 def login():
   st.title("Login to TrendSift+")
   with st.form("login_form"):
@@ -92,7 +131,6 @@ def login():
       if submit_button:
           if username == USERNAME and password == PASSWORD:
               st.session_state["logged_in"] = True
-              # Clear the form fields
               st.empty()
           else:
               st.error("Invalid username or password")
@@ -128,22 +166,23 @@ def main():
 
       search_button = st.sidebar.button("Search")
 
-      # Store search results in session state
       if search_button and search_query:
           st.session_state.search_results = {} 
-          with st.spinner("Searching..."):
+          with st.spinner("Searching and processing results..."):
               for search_type in selected_search_types:
                   if search_type == "Google Trends":
                       st.session_state.search_results[search_type] = google_trends_search(search_query, timeframes[selected_timeframe])
                   elif search_type == "Serper Search":
-                      st.session_state.search_results[search_type] = serper_search(search_query, "search")
+                      results = serper_search(search_query, "search")
+                      st.session_state.search_results[search_type] = process_search_results(search_type, results)
                   elif search_type == "Serper Scholar":
-                      st.session_state.search_results[search_type] = serper_search(search_query, "scholar")
+                      results = serper_search(search_query, "scholar")
+                      st.session_state.search_results[search_type] = process_search_results(search_type, results)
                   elif search_type.startswith("Exa"):
                       category = search_type.split(" ")[-1].lower()
-                      st.session_state.search_results[search_type] = exa_search(search_query, category, start_date_str, end_date_str)
+                      results = exa_search(search_query, category, start_date_str, end_date_str)
+                      st.session_state.search_results[search_type] = process_search_results(search_type, results)
 
-      # Display search results
       if st.session_state.search_results:
           for search_type, results in st.session_state.search_results.items():
               st.subheader(f"Results for {search_type}")
@@ -154,67 +193,35 @@ def main():
                       df['value'] = df['values'].apply(lambda x: x[0]['value'])
                       fig = px.line(df, x='date', y='value', title=f"Interest over time for '{search_query}'")
                       st.plotly_chart(fig)
-                      # ... (rest of the Google Trends results display)
                   else:
                       st.warning("No Google Trends data available for the given query and time range.")
+              elif search_type in ("Serper Search", "Serper Scholar", "Exa Company", "Exa Research Paper", "Exa News", "Exa Tweet"):
+                  for i, result in enumerate(results):
+                      key = f"{search_type.lower().replace(' ', '_')}_{i}"
+                      st.session_state.selected_results[key] = st.session_state.get(key, False)
+                      col1, col2 = st.columns([0.1, 0.9])
+                      with col1:
+                          st.checkbox("Select", key=key, value=st.session_state.selected_results.get(key, False))
+                      with col2:
+                          st.write(f"**Title:** {result.get('title', 'N/A')}")
+                          st.write(f"**Summary:** {result.get('summary', 'N/A')}")
+                          st.write(f"**Link:** [{result.get('link', result.get('url', '#'))}]({result.get('link', result.get('url', '#'))})")
+                          with st.expander("Full Content"):
+                              st.write(result.get('full_content', 'No full content available'))
+                          st.write("---")
 
-              elif search_type in ("Serper Search", "Serper Scholar"):
-                  if results and "organic" in results:
-                      for i, result in enumerate(results["organic"]):
-                          key = f"{search_type.lower().replace(' ', '_')}_{i}"
-                          st.session_state.selected_results[key] = st.session_state.get(key, False)
-                          col1, col2 = st.columns([0.1, 0.9])
-                          with col1:
-                              st.checkbox("Select", key=key, value=st.session_state.selected_results.get(key, False))
-                          with col2:
-                              st.write(f"**Title:** {result.get('title', 'N/A')}")
-                              st.write(f"**Snippet:** {result.get('snippet', 'N/A')}")
-                              st.write(f"**Link:** [{result.get('link', '#')}]({result.get('link', '#')})")
-                              if 'position' in result:
-                                  st.write(f"**Position:** {result['position']}")
-                              if 'date' in result:
-                                  st.write(f"**Date:** {result['date']}")
-                              st.write("---")
-                  else:
-                      st.warning(f"No {search_type} results found.")
-
-              elif search_type.startswith("Exa"):
-                  if results and "results" in results:
-                      for i, result in enumerate(results['results']):
-                          key = f"exa_{search_type.split(' ')[-1].lower()}_{i}"
-                          st.session_state.selected_results[key] = st.session_state.get(key, False)
-                          col1, col2 = st.columns([0.1, 0.9])
-                          with col1:
-                              st.checkbox("Select", key=key, value=st.session_state.selected_results.get(key, False))
-                          with col2:
-                              st.write(f"**Title:** {result.get('title', 'No title')}")
-                              st.write(f"**URL:** [{result.get('url', 'No URL')}]({result.get('url', 'No URL')})")
-                              st.write(f"**Published Date:** {result.get('publishedDate', 'N/A')}")
-                              st.write(f"**Author:** {result.get('author', 'N/A')}")
-                              st.write(f"**Text:** {result.get('text', 'No text')[:1000]}...")
-                              if 'highlights' in result:
-                                  st.write("**Highlights:**")
-                                  for highlight in result['highlights']:
-                                      st.write(f"- {highlight}")
-                              st.write("---")
-                  else:
-                      st.warning(f"No results found for Exa search in category: {search_type.split(' ')[-1].lower()}")
-
-      # Process selected results
       if st.session_state.search_results:
           if st.button("Process Selected Results"):
               selected_results = []
               for search_type, results in st.session_state.search_results.items():
-                  if search_type in ("Serper Search", "Serper Scholar"):
-                      selected_results.extend([result for i, result in enumerate(results["organic"]) if st.session_state.selected_results.get(f"{search_type.lower().replace(' ', '_')}_{i}", False)])
-                  elif search_type.startswith("Exa"):
-                      selected_results.extend([result for i, result in enumerate(results['results']) if st.session_state.selected_results.get(f"exa_{search_type.split(' ')[-1].lower()}_{i}", False)])
+                  if search_type != "Google Trends":
+                      selected_results.extend([result for i, result in enumerate(results) if st.session_state.selected_results.get(f"{search_type.lower().replace(' ', '_')}_{i}", False)])
               
               if selected_results:
                   st.subheader("Selected Results for Further Processing")
                   for result in selected_results:
                       st.write(f"**{result.get('title', 'No title')}**")
-                      st.write(result.get('snippet', result.get('text', 'No content'))[:1000] + "...")
+                      st.write(result.get('summary', 'No summary available'))
                       st.write(f"[Source]({result.get('link', result.get('url', '#'))})")
                       st.write("---")
               else:
