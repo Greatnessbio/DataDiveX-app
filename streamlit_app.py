@@ -221,7 +221,7 @@ def main():
                       "Source": st.column_config.TextColumn(width="medium"),
                       "Title": st.column_config.TextColumn(width="large"),
                       "Link": st.column_config.TextColumn(width="large")
-                  }, hide_index=True, use_container_width=True)
+                  }, hide_index=True, use_container_width=True, num_rows="dynamic")
                   st.session_state.selected_results = edited_df[edited_df['Selected']].to_dict('records')
 
           if st.button("Process Selected Results"):
@@ -242,6 +242,19 @@ def main():
                   with st.expander("Full Content"):
                       st.write(result['full_content'][:1000] + "...")
                   st.write("---")
+
+          # Display detailed results
+          st.subheader("All Detailed Results")
+          for search_type, results in st.session_state.search_results.items():
+              if search_type != "Google Trends":
+                  st.write(f"**{search_type}**")
+                  for result in results:
+                      st.write(f"**Title:** {result.get('title', 'N/A')}")
+                      st.write(f"**Summary:** {result.get('summary', 'No summary available')}")
+                      st.write(f"**Link:** [{result.get('link', result.get('url', '#'))}]({result.get('link', result.get('url', '#'))})")
+                      with st.expander("Full Content"):
+                          st.write(result.get('full_content', 'No full content available')[:1000] + "...")
+                      st.write("---")
 
 if __name__ == "__main__":
   main()
