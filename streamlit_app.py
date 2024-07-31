@@ -4,7 +4,6 @@ import json
 from datetime import datetime, timedelta
 import pandas as pd
 import plotly.express as px
-from exa_py import Exa
 
 # Set up page config
 st.set_page_config(page_title="TrendSift+", page_icon="🔍", layout="wide")
@@ -19,9 +18,6 @@ try:
 except KeyError as e:
     st.error(f"Missing secret: {e}. Please check your Streamlit secrets configuration.")
     st.stop()
-
-# Initialize Exa client
-exa = Exa(api_key=EXA_API_KEY)
 
 @st.cache_data(ttl=3600)
 def google_trends_search(query, timeframe):
@@ -84,24 +80,53 @@ def serper_search(query, search_type="search"):
 
 @st.cache_data(ttl=3600)
 def exa_search(query, category, start_date, end_date):
+    url = "https://api.exa.ai/search"
+    headers = {
+        "accept": "application/json",
+        "content-type": "application/json",
+        "x-api-key": EXA_API_KEY
+    }
+    payload = {
+        "query": query,
+        "useAutoprompt": True,
+        "type": "neural",
+        "category": category,
+        "numResults": 10,
+        "startPublishedDate": start_date,
+        "endPublishedDate": end_date
+    }
+    
     try:
-        result = exa.search_and_contents(
-            query,
-            type="neural",
-            use_autoprompt=True,
-            num_results=10,
-            text=True,
-            category=category,
-            start_published_date=start_date,
-            end_published_date=end_date
-        )
-        if not result:
-            st.warning(f"No results found for Exa search in category: {category}")
-            return []
-        return result
-    except Exception as e:
+        response = requests.post(url, json=payload, headers=headers)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
         st.error(f"Error fetching data from Exa: {str(e)}")
-        return []
+        return None
+
+@st.cache_data(ttl=3600)
+def exa_get_contents(urls):
+    exa_url = "https://api.exa.ai/get_contents"
+    headers = {
+        "accept": "application/json",
+        "content-type": "application/json",
+        "x-api-key": EXA_API_KEY
+    }
+    payload = {
+        "urls": urls,
+        "text": True,
+        "highlights": {
+            "num_sentences": 3
+        }
+    }
+    
+    try:
+        response = requests.post(exa_url, json=payload, headers=headers)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        st.error(f"Error fetching contents from Exa: {str(e)}")
+        return None
 
 def login():
     st.title("Login to TrendSift+")
@@ -187,9 +212,13 @@ def main():
                             if 'description' in result:
                                 st.write(f"Description: {result['description']}")
                             st.write("---")
+                    else:
+                        st.warning("No Serper Search results found.")
+                        st.write(f"Debug - Serper Search API response: {search_results}")
                 
                 elif search_type == "Serper Scholar":
                     scholar_results = serper_search(search_query, "scholar")
+                    st.write(f"Debug - Serper Scholar results: {scholar_results}")
                     if scholar_results and "organic_results" in scholar_results:
                         for i, result in enumerate(scholar_results["organic_results"]):
                             st.checkbox(f"Select result {i+1}", key=f"serper_scholar_{i}")
@@ -202,39 +231,62 @@ def main():
                             st.write("---")
                     else:
                         st.warning("No scholar results found.")
+                        st.write(f"Debug - Serper Scholar API response: {scholar_results}")
                 
                 elif search_type.startswith("Exa"):
                     category = search_type.split(" ")[-1].lower()
                     exa_results = exa_search(search_query, category, start_date_str, end_date_str)
-                    if exa_results:
-                        st.write(f"Number of results: {len(exa_results)}")
-                        for i, result in enumerate(exa_results):
+                    st.write(f"Debug - Exa results: {exa_results}")
+                    if exa_results and "results" in exa_results:
+                        st.write(f"Number of results: {len(exa_results['results'])}")
+                        for i, result in enumerate(exa_results['results']):
                             st.checkbox(f"Select result {i+1}", key=f"exa_{category}_{i}")
                             st.write(f"**{result.get('title', 'No title')}**")
                             st.write(f"Full URL: {result.get('url', 'No URL')}")
                             st.write(result.get('text', 'No text')[:1000] + "...")  # Display first 1000 characters
+                            if 'highlights' in result:
+                                st.write("Highlights:")
+                                for highlight in result['highlights']:
+                                    st.write(f"- {highlight}")
                             st.write("---")
                     else:
                         st.warning(f"No results found for Exa search in category: {category}")
+                        st.write(f"Debug - Exa API response: {exa_results}")
 
             # Process selected results
             if st.button("Process Selected Results"):
                 selected_results = []
+                selected_urls = []
                 for search_type in selected_search_types:
                     if search_type == "Serper Search":
                         selected_results.extend([result for i, result in enumerate(search_results["organic"]) if st.session_state.get(f"serper_search_{i}", False)])
+                        selected_urls.extend([result['link'] for i, result in enumerate(search_results["organic"]) if st.session_state.get(f"serper_search_{i}", False)])
                     elif search_type == "Serper Scholar":
                         selected_results.extend([result for i, result in enumerate(scholar_results["organic_results"]) if st.session_state.get(f"serper_scholar_{i}", False)])
+                        selected_urls.extend([result['link'] for i, result in enumerate(scholar_results["organic_results"]) if st.session_state.get(f"serper_scholar_{i}", False)])
                     elif search_type.startswith("Exa"):
                         category = search_type.split(" ")[-1].lower()
-                        selected_results.extend([result for i, result in enumerate(exa_results) if st.session_state.get(f"exa_{category}_{i}", False)])
+                        selected_results.extend([result for i, result in enumerate(exa_results['results']) if st.session_state.get(f"exa_{category}_{i}", False)])
+                        selected_urls.extend([result['url'] for i, result in enumerate(exa_results['results']) if st.session_state.get(f"exa_{category}_{i}", False)])
                 
                 st.subheader("Selected Results for Further Processing")
-                for result in selected_results:
-                    st.write(f"**{result.get('title', 'No title')}**")
-                    st.write(result.get('snippet', result.get('text', 'No content'))[:1000] + "...")
-                    st.write(f"Full URL: {result.get('link', result.get('url', '#'))}")
-                    st.write("---")
+                st.write(f"Number of selected results: {len(selected_results)}")
+                st.write("Fetching detailed content for selected URLs...")
+                
+                detailed_contents = exa_get_contents(selected_urls)
+                
+                if detailed_contents:
+                    for url, content in detailed_contents.items():
+                        st.write(f"**URL: {url}**")
+                        st.write(f"Title: {content.get('title', 'No title')}")
+                        st.write(f"Text: {content.get('text', 'No text')[:1000]}...")  # Display first 1000 characters
+                        if 'highlights' in content:
+                            st.write("Highlights:")
+                            for highlight in content['highlights']:
+                                st.write(f"- {highlight}")
+                        st.write("---")
+                else:
+                    st.warning("Failed to fetch detailed contents for selected URLs.")
 
 if __name__ == "__main__":
     main()
