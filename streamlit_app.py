@@ -38,21 +38,29 @@ def google_trends_search(query, timeframe):
         response.raise_for_status()
         
         data = response.json()
+        result = {}
+        
         if "interest_over_time" in data:
             timeline_data = data["interest_over_time"].get("timeline_data", [])
-            if not timeline_data:
+            if timeline_data:
+                df = pd.DataFrame(timeline_data)
+                df['date'] = pd.to_datetime(df['date'].apply(lambda x: x.split('T')[0]))
+                df['value'] = df['values'].apply(lambda x: x[0]['value'] if isinstance(x, list) and len(x) > 0 else x)
+                df['value'] = pd.to_numeric(df['value'], errors='coerce')
+                df = df.dropna(subset=['value'])
+                result['trend_data'] = df[['date', 'value']]
+            else:
                 st.warning("No timeline data available in the API response.")
-                return None
-            
-            df = pd.DataFrame(timeline_data)
-            df['date'] = pd.to_datetime(df['date'].apply(lambda x: x.split('T')[0]))
-            df['value'] = df['values'].apply(lambda x: x[0]['value'] if isinstance(x, list) and len(x) > 0 else x)
-            df['value'] = pd.to_numeric(df['value'], errors='coerce')
-            df = df.dropna(subset=['value'])
-            return df[['date', 'value']]
-        else:
-            st.warning("No interest_over_time data available in the API response.")
-            return None
+        
+        # Add related queries
+        params["data_type"] = "RELATED_QUERIES"
+        response = requests.get("https://serpapi.com/search", params=params)
+        response.raise_for_status()
+        data = response.json()
+        if "related_queries" in data:
+            result['related_queries'] = data["related_queries"]
+        
+        return result
     except requests.exceptions.RequestException as e:
         st.error(f"Error fetching data: {e}")
         return None
@@ -152,11 +160,21 @@ def main():
                 st.subheader(f"Results for {search_type}")
                 
                 if search_type == "Google Trends":
-                    trend_data = google_trends_search(search_query, timeframes[selected_timeframe])
-                    if trend_data is not None and not trend_data.empty:
-                        fig = px.line(trend_data, x='date', y='value', title=f"Interest over time for '{search_query}'")
+                    trend_results = google_trends_search(search_query, timeframes[selected_timeframe])
+                    if trend_results and 'trend_data' in trend_results:
+                        fig = px.line(trend_results['trend_data'], x='date', y='value', title=f"Interest over time for '{search_query}'")
                         st.plotly_chart(fig)
-                        st.dataframe(trend_data)
+                        
+                        if 'related_queries' in trend_results:
+                            st.subheader("Related Queries")
+                            if 'top' in trend_results['related_queries']:
+                                st.write("Top Queries:")
+                                for query in trend_results['related_queries']['top'][:5]:
+                                    st.write(f"- {query['query']}: {query['value']}")
+                            if 'rising' in trend_results['related_queries']:
+                                st.write("Rising Queries:")
+                                for query in trend_results['related_queries']['rising'][:5]:
+                                    st.write(f"- {query['query']}: {query['value']}")
                 
                 elif search_type == "Serper Search":
                     search_results = serper_search(search_query, "search")
@@ -165,7 +183,9 @@ def main():
                             st.checkbox(f"Select result {i+1}", key=f"serper_search_{i}")
                             st.write(f"**{result['title']}**")
                             st.write(result['snippet'])
-                            st.write(f"[Link]({result['link']})")
+                            st.write(f"Full URL: {result['link']}")
+                            if 'description' in result:
+                                st.write(f"Description: {result['description']}")
                             st.write("---")
                 
                 elif search_type == "Serper Scholar":
@@ -176,8 +196,12 @@ def main():
                             st.write(f"**{result['title']}**")
                             st.write(f"Authors: {result.get('authors', 'N/A')}")
                             st.write(f"Publication: {result.get('publication', 'N/A')}")
-                            st.write(f"[Link]({result['link']})")
+                            st.write(f"Full URL: {result['link']}")
+                            if 'snippet' in result:
+                                st.write(f"Snippet: {result['snippet']}")
                             st.write("---")
+                    else:
+                        st.warning("No scholar results found.")
                 
                 elif search_type.startswith("Exa"):
                     category = search_type.split(" ")[-1].lower()
@@ -187,8 +211,8 @@ def main():
                         for i, result in enumerate(exa_results):
                             st.checkbox(f"Select result {i+1}", key=f"exa_{category}_{i}")
                             st.write(f"**{result.get('title', 'No title')}**")
-                            st.write(result.get('url', 'No URL'))
-                            st.write(result.get('text', 'No text')[:500] + "...")  # Display first 500 characters
+                            st.write(f"Full URL: {result.get('url', 'No URL')}")
+                            st.write(result.get('text', 'No text')[:1000] + "...")  # Display first 1000 characters
                             st.write("---")
                     else:
                         st.warning(f"No results found for Exa search in category: {category}")
@@ -208,8 +232,8 @@ def main():
                 st.subheader("Selected Results for Further Processing")
                 for result in selected_results:
                     st.write(f"**{result.get('title', 'No title')}**")
-                    st.write(result.get('snippet', result.get('text', 'No content'))[:500] + "...")
-                    st.write(f"[Link]({result.get('link', result.get('url', '#'))})")
+                    st.write(result.get('snippet', result.get('text', 'No content'))[:1000] + "...")
+                    st.write(f"Full URL: {result.get('link', result.get('url', '#'))}")
                     st.write("---")
 
 if __name__ == "__main__":
