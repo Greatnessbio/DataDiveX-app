@@ -4,7 +4,7 @@ import pandas as pd
 import plotly.express as px
 from datetime import datetime, timedelta
 import json
-from ratelimit import limits, sleep_and_retry
+import time
 
 # Set up page config
 st.set_page_config(page_title="TrendSift+", page_icon="🔍", layout="wide")
@@ -25,6 +25,23 @@ if 'search_results' not in st.session_state:
   st.session_state.search_results = {}
 if 'selected_results' not in st.session_state:
   st.session_state.selected_results = {}
+if 'last_request_time' not in st.session_state:
+  st.session_state.last_request_time = 0
+
+# Simple rate limiting function
+def rate_limited(max_per_minute):
+  min_interval = 60.0 / max_per_minute
+  def decorator(func):
+      def wrapper(*args, **kwargs):
+          now = time.time()
+          elapsed = now - st.session_state.last_request_time
+          left_to_wait = min_interval - elapsed
+          if left_to_wait > 0:
+              time.sleep(left_to_wait)
+          st.session_state.last_request_time = time.time()
+          return func(*args, **kwargs)
+      return wrapper
+  return decorator
 
 @st.cache_data(ttl=3600)
 def google_trends_search(query, timeframe):
@@ -83,8 +100,7 @@ def exa_search(query, category, start_date, end_date):
       st.error(f"Error fetching data from Exa: {str(e)}")
       return None
 
-@sleep_and_retry
-@limits(calls=20, period=60)
+@rate_limited(20)
 def jina_reader(url):
   jina_url = f'https://r.jina.ai/{url}'
   headers = {
