@@ -13,14 +13,14 @@ st.set_page_config(page_title="TrendSift+", page_icon="🔍", layout="wide")
 
 # Load credentials from secrets
 try:
-USERNAME = st.secrets["credentials"]["username"]
-PASSWORD = st.secrets["credentials"]["password"]
-SERPAPI_KEY = st.secrets["serpapi"]["api_key"]
-SERPER_KEY = st.secrets["serper"]["api_key"]
-EXA_API_KEY = st.secrets["exa"]["api_key"]
+  USERNAME = st.secrets["credentials"]["username"]
+  PASSWORD = st.secrets["credentials"]["password"]
+  SERPAPI_KEY = st.secrets["serpapi"]["api_key"]
+  SERPER_KEY = st.secrets["serper"]["api_key"]
+  EXA_API_KEY = st.secrets["exa"]["api_key"]
 except KeyError as e:
-st.error(f"Missing secret: {e}. Please check your Streamlit secrets configuration.")
-st.stop()
+  st.error(f"Missing secret: {e}. Please check your Streamlit secrets configuration.")
+  st.stop()
 
 # Initialize session state
 if 'search_results' not in st.session_state:
