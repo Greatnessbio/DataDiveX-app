@@ -107,7 +107,8 @@ def exa_search(query, category, start_date, end_date):
       return None
 
 def get_jina_reader_content(url):
-  jina_url = f"https://r.jina.ai/{url.split('/')[-1]}"
+  # Prepend the URL with the Jina API base URL
+  jina_url = f"https://r.jina.ai/{url}"
   headers = {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
       'Accept': 'application/json'
