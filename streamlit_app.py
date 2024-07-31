@@ -120,7 +120,6 @@ def get_jina_reader_content(url):
   except requests.exceptions.RequestException as e:
       return {
           'text': f"Failed to fetch content: {str(e)}",
-          'summary': 'Error fetching summary'
       }
 
 def login():
@@ -212,7 +211,10 @@ def main():
               st.session_state.processed_results = []
               for result in st.session_state.selected_results:
                   jina_content = get_jina_reader_content(result['Link'])
-                  result['full_content'] = jina_content['text']
+                  if isinstance(jina_content, dict):
+                      result['full_content'] = jina_content.get('text', 'No content available')
+                  else:
+                      result['full_content'] = jina_content
                   st.session_state.processed_results.append(result)
 
       # Display detailed results for selected items
