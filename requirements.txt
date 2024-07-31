@@ -4,3 +4,5 @@ python-dotenv
 pandas
 plotly
 pytrends
+exa-py
+python-dotenv
