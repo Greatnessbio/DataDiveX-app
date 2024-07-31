@@ -122,26 +122,6 @@ def jina_reader(url):
           'summary': 'Error fetching summary'
       }
 
-def process_search_results(search_type, results):
-  processed_results = []
-  if search_type in ("Serper Search", "Serper Scholar"):
-      for result in results.get("organic", []):
-          url = result.get('link')
-          if url:
-              jina_content = jina_reader(url)
-              result['full_content'] = jina_content['text']
-              result['summary'] = jina_content['summary']
-          processed_results.append(result)
-  elif search_type.startswith("Exa"):
-      for result in results.get('results', []):
-          url = result.get('url')
-          if url:
-              jina_content = jina_reader(url)
-              result['full_content'] = jina_content['text']
-              result['summary'] = jina_content['summary']
-          processed_results.append(result)
-  return processed_results
-
 def login():
   st.title("Login to TrendSift+")
   with st.form("login_form"):
@@ -184,7 +164,6 @@ def main():
 
       if search_button and search_query:
           st.session_state.search_results = {} 
-          st.session_state.selected_results = []
           
           # Perform initial search and display quick results
           with st.spinner("Searching..."):
@@ -215,9 +194,14 @@ def main():
               if quick_results:
                   st.subheader("Quick Results")
                   df = pd.DataFrame(quick_results)
-                  selected = st.multiselect("Select results to process:", df['Title'].tolist())
-                  st.session_state.selected_results = df[df['Title'].isin(selected)].to_dict('records')
-                  st.table(df)
+                  df['Selected'] = False
+                  edited_df = st.data_editor(df, column_config={
+                      "Selected": st.column_config.CheckboxColumn(default=False),
+                      "Source": st.column_config.TextColumn(width="medium"),
+                      "Title": st.column_config.TextColumn(width="large"),
+                      "Link": st.column_config.TextColumn(width="large")
+                  }, hide_index=True, use_container_width=True, num_rows="dynamic")
+                  st.session_state.selected_results = edited_df[edited_df['Selected']].to_dict('records')
 
           if st.button("Process Selected Results"):
               # Process and scrape selected results
@@ -234,27 +218,9 @@ def main():
                   st.write(f"**Source:** {result['Source']}")
                   st.write(f"**Summary:** {result['summary']}")
                   st.write(f"**Link:** [{result['Link']}]({result['Link']})")
-                  with st.expander("Full Content"):
-                      st.write(result['full_content'][:1000] + "...")
+                  st.write("**Full Content:**")
+                  st.write(result['full_content'])
                   st.write("---")
-
-          # Display all detailed results
-          st.subheader("All Detailed Results")
-          for search_type, results in st.session_state.search_results.items():
-              if search_type != "Google Trends":
-                  st.write(f"**{search_type}**")
-                  if search_type in ("Serper Search", "Serper Scholar"):
-                      for result in results.get("organic", []):
-                          st.write(f"**Title:** {result.get('title', 'N/A')}")
-                          st.write(f"**Summary:** {result.get('snippet', 'No summary available')}")
-                          st.write(f"**Link:** [{result.get('link', '#')}]({result.get('link', '#')})")
-                          st.write("---")
-                  elif search_type.startswith("Exa"):
-                      for result in results.get("results", []):
-                          st.write(f"**Title:** {result.get('title', 'N/A')}")
-                          st.write(f"**Summary:** {result.get('description', 'No summary available')}")
-                          st.write(f"**Link:** [{result.get('url', '#')}]({result.get('url', '#')})")
-                          st.write("---")
 
 if __name__ == "__main__":
   main()
