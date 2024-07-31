@@ -87,10 +87,13 @@ def exa_search(query, category, start_date, end_date):
             start_published_date=start_date,
             end_published_date=end_date
         )
+        if not result:
+            st.warning(f"No results found for Exa search in category: {category}")
+            return []
         return result
     except Exception as e:
-        st.error(f"Error fetching data from Exa: {e}")
-        return None
+        st.error(f"Error fetching data from Exa: {str(e)}")
+        return []
 
 def login():
     st.title("Login to TrendSift+")
@@ -115,6 +118,12 @@ def main():
         login()
     else:
         st.title("TrendSift+: Multi-Source Research Tool")
+
+        # Debug Information
+        st.write("Debug Information:")
+        st.write(f"SerpAPI Key: {'Set' if SERPAPI_KEY else 'Not Set'}")
+        st.write(f"Serper Key: {'Set' if SERPER_KEY else 'Not Set'}")
+        st.write(f"Exa API Key: {'Set' if EXA_API_KEY else 'Not Set'}")
 
         st.sidebar.header("Search Parameters")
         search_query = st.sidebar.text_input("Enter search term")
@@ -174,12 +183,15 @@ def main():
                     category = search_type.split(" ")[-1].lower()
                     exa_results = exa_search(search_query, category, start_date_str, end_date_str)
                     if exa_results:
+                        st.write(f"Number of results: {len(exa_results)}")
                         for i, result in enumerate(exa_results):
                             st.checkbox(f"Select result {i+1}", key=f"exa_{category}_{i}")
-                            st.write(f"**{result['title']}**")
-                            st.write(result['url'])
-                            st.write(result['text'][:500] + "...")  # Display first 500 characters
+                            st.write(f"**{result.get('title', 'No title')}**")
+                            st.write(result.get('url', 'No URL'))
+                            st.write(result.get('text', 'No text')[:500] + "...")  # Display first 500 characters
                             st.write("---")
+                    else:
+                        st.warning(f"No results found for Exa search in category: {category}")
 
             # Process selected results
             if st.button("Process Selected Results"):
