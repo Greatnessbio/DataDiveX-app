@@ -33,7 +33,6 @@ def google_trends_search(query, timeframe):
       "date": timeframe,
       "api_key": SERPAPI_KEY
   }
-  
   try:
       response = requests.get("https://serpapi.com/search", params=params)
       response.raise_for_status()
@@ -50,7 +49,6 @@ def serper_search(query, search_type="search"):
       'X-API-KEY': SERPER_KEY,
       'Content-Type': 'application/json'
   }
-  
   try:
       response = requests.post(url, headers=headers, data=payload)
       response.raise_for_status()
@@ -76,7 +74,6 @@ def exa_search(query, category, start_date, end_date):
       "startPublishedDate": start_date,
       "endPublishedDate": end_date
   }
-  
   try:
       response = requests.post(url, json=payload, headers=headers)
       response.raise_for_status()
@@ -95,9 +92,8 @@ def login():
       if submit_button:
           if username == USERNAME and password == PASSWORD:
               st.session_state["logged_in"] = True
-              st.success("Logged in successfully!")
-              # Instead of rerunning, clear the form and let the main function handle the redirect
-              st.empty() # This will clear the form
+              # Clear the form fields
+              st.empty()
           else:
               st.error("Invalid username or password")
 
@@ -134,7 +130,7 @@ def main():
 
       # Store search results in session state
       if search_button and search_query:
-          st.session_state.search_results = {}  # Reset search results
+          st.session_state.search_results = {} 
           with st.spinner("Searching..."):
               for search_type in selected_search_types:
                   if search_type == "Google Trends":
@@ -158,38 +154,61 @@ def main():
                       df['value'] = df['values'].apply(lambda x: x[0]['value'])
                       fig = px.line(df, x='date', y='value', title=f"Interest over time for '{search_query}'")
                       st.plotly_chart(fig)
-
                       # ... (rest of the Google Trends results display)
-
                   else:
                       st.warning("No Google Trends data available for the given query and time range.")
 
-              elif search_type == "Serper Search":
+              elif search_type in ("Serper Search", "Serper Scholar"):
                   if results and "organic" in results:
                       for i, result in enumerate(results["organic"]):
-                          key = f"serper_search_{i}"
+                          key = f"{search_type.lower().replace(' ', '_')}_{i}"
                           st.session_state.selected_results[key] = st.session_state.get(key, False)
                           col1, col2 = st.columns([0.1, 0.9])
                           with col1:
                               st.checkbox("Select", key=key, value=st.session_state.selected_results.get(key, False))
                           with col2:
-                              st.write(f"**Title:** {result['title']}")
-                              # ... (rest of the Serper Search result display)
+                              st.write(f"**Title:** {result.get('title', 'N/A')}")
+                              st.write(f"**Snippet:** {result.get('snippet', 'N/A')}")
+                              st.write(f"**Link:** [{result.get('link', '#')}]({result.get('link', '#')})")
+                              if 'position' in result:
+                                  st.write(f"**Position:** {result['position']}")
+                              if 'date' in result:
+                                  st.write(f"**Date:** {result['date']}")
+                              st.write("---")
                   else:
-                      st.warning("No Serper Search results found.")
+                      st.warning(f"No {search_type} results found.")
 
-              # ... (Similarly for Serper Scholar and Exa search results)
+              elif search_type.startswith("Exa"):
+                  if results and "results" in results:
+                      for i, result in enumerate(results['results']):
+                          key = f"exa_{search_type.split(' ')[-1].lower()}_{i}"
+                          st.session_state.selected_results[key] = st.session_state.get(key, False)
+                          col1, col2 = st.columns([0.1, 0.9])
+                          with col1:
+                              st.checkbox("Select", key=key, value=st.session_state.selected_results.get(key, False))
+                          with col2:
+                              st.write(f"**Title:** {result.get('title', 'No title')}")
+                              st.write(f"**URL:** [{result.get('url', 'No URL')}]({result.get('url', 'No URL')})")
+                              st.write(f"**Published Date:** {result.get('publishedDate', 'N/A')}")
+                              st.write(f"**Author:** {result.get('author', 'N/A')}")
+                              st.write(f"**Text:** {result.get('text', 'No text')[:1000]}...")
+                              if 'highlights' in result:
+                                  st.write("**Highlights:**")
+                                  for highlight in result['highlights']:
+                                      st.write(f"- {highlight}")
+                              st.write("---")
+                  else:
+                      st.warning(f"No results found for Exa search in category: {search_type.split(' ')[-1].lower()}")
 
       # Process selected results
       if st.session_state.search_results:
           if st.button("Process Selected Results"):
               selected_results = []
               for search_type, results in st.session_state.search_results.items():
-                  if search_type == "Serper Search" or search_type == "Serper Scholar":
+                  if search_type in ("Serper Search", "Serper Scholar"):
                       selected_results.extend([result for i, result in enumerate(results["organic"]) if st.session_state.selected_results.get(f"{search_type.lower().replace(' ', '_')}_{i}", False)])
                   elif search_type.startswith("Exa"):
-                      category = search_type.split(" ")[-1].lower()
-                      selected_results.extend([result for i, result in enumerate(results['results']) if st.session_state.selected_results.get(f"exa_{category}_{i}", False)])
+                      selected_results.extend([result for i, result in enumerate(results['results']) if st.session_state.selected_results.get(f"exa_{search_type.split(' ')[-1].lower()}_{i}", False)])
               
               if selected_results:
                   st.subheader("Selected Results for Further Processing")
