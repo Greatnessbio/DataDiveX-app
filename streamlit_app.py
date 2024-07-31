@@ -3,6 +3,7 @@ import requests
 import pandas as pd
 import plotly.express as px
 from datetime import datetime, timedelta
+import json
 
 # Set up page config
 st.set_page_config(page_title="TrendSift+", page_icon="🔍", layout="wide")
@@ -18,7 +19,6 @@ except KeyError as e:
     st.error(f"Missing secret: {e}. Please check your Streamlit secrets configuration.")
     st.stop()
 
-# Caching decorators
 @st.cache_data(ttl=3600)
 def google_trends_search(query, timeframe):
     params = {
@@ -147,13 +147,11 @@ def main():
                     search_results = serper_search(search_query, "search")
                     if search_results and "organic" in search_results:
                         for i, result in enumerate(search_results["organic"]):
-                            col1, col2 = st.columns([0.1, 0.9])
-                            with col1:
-                                st.checkbox(f"Select result {i+1}", key=f"serper_search_{i}")
-                            with col2:
-                                st.write(f"**{result['title']}**")
-                                st.write(result['snippet'])
-                                st.write(f"[Full URL]({result['link']})")
+                            with st.expander(f"Result {i+1}: {result['title']}"):
+                                st.write(f"**Title:** {result['title']}")
+                                st.write(f"**Snippet:** {result['snippet']}")
+                                st.write(f"**Link:** [{result['link']}]({result['link']})")
+                                st.checkbox("Select for further processing", key=f"serper_search_{i}")
                     else:
                         st.warning("No Serper Search results found.")
                 
@@ -161,14 +159,15 @@ def main():
                     scholar_results = serper_search(search_query, "scholar")
                     if scholar_results and "organic" in scholar_results:
                         for i, result in enumerate(scholar_results["organic"]):
-                            col1, col2 = st.columns([0.1, 0.9])
-                            with col1:
-                                st.checkbox(f"Select result {i+1}", key=f"serper_scholar_{i}")
-                            with col2:
-                                st.write(f"**{result['title']}**")
-                                st.write(f"Authors: {result.get('authors', 'N/A')}")
-                                st.write(f"Publication: {result.get('publication', 'N/A')}")
-                                st.write(f"[Full URL]({result['link']})")
+                            with st.expander(f"Result {i+1}: {result['title']}"):
+                                st.write(f"**Title:** {result['title']}")
+                                st.write(f"**Authors:** {result.get('authors', 'N/A')}")
+                                st.write(f"**Publication:** {result.get('publication', 'N/A')}")
+                                st.write(f"**Snippet:** {result.get('snippet', 'N/A')}")
+                                st.write(f"**Cited By:** {result.get('citedBy', 'N/A')}")
+                                st.write(f"**Year:** {result.get('year', 'N/A')}")
+                                st.write(f"**Link:** [{result['link']}]({result['link']})")
+                                st.checkbox("Select for further processing", key=f"serper_scholar_{i}")
                     else:
                         st.warning("No Serper Scholar results found.")
                 
@@ -177,13 +176,17 @@ def main():
                     exa_results = exa_search(search_query, category, start_date_str, end_date_str)
                     if exa_results and "results" in exa_results:
                         for i, result in enumerate(exa_results['results']):
-                            col1, col2 = st.columns([0.1, 0.9])
-                            with col1:
-                                st.checkbox(f"Select result {i+1}", key=f"exa_{category}_{i}")
-                            with col2:
-                                st.write(f"**{result.get('title', 'No title')}**")
-                                st.write(f"[Full URL]({result.get('url', 'No URL')})")
-                                st.write(result.get('text', 'No text')[:500] + "...")
+                            with st.expander(f"Result {i+1}: {result.get('title', 'No title')}"):
+                                st.write(f"**Title:** {result.get('title', 'No title')}")
+                                st.write(f"**URL:** [{result.get('url', 'No URL')}]({result.get('url', 'No URL')})")
+                                st.write(f"**Published Date:** {result.get('publishedDate', 'N/A')}")
+                                st.write(f"**Author:** {result.get('author', 'N/A')}")
+                                st.write(f"**Text:** {result.get('text', 'No text')[:1000]}...")
+                                if 'highlights' in result:
+                                    st.write("**Highlights:**")
+                                    for highlight in result['highlights']:
+                                        st.write(f"- {highlight}")
+                                st.checkbox("Select for further processing", key=f"exa_{category}_{i}")
                     else:
                         st.warning(f"No results found for Exa search in category: {category}")
 
@@ -202,9 +205,9 @@ def main():
                 if selected_results:
                     st.subheader("Selected Results for Further Processing")
                     for result in selected_results:
-                        st.write(f"**{result.get('title', 'No title')}**")
-                        st.write(result.get('snippet', result.get('text', 'No content'))[:500] + "...")
-                        st.write(f"[Full URL]({result.get('link', result.get('url', '#'))})")
+                        st.write(f"**Title:** {result.get('title', 'No title')}")
+                        st.write(f"**Source:** {result.get('link', result.get('url', 'No source'))}")
+                        st.write(f"**Content:** {result.get('snippet', result.get('text', 'No content'))[:500]}...")
                         st.write("---")
                 else:
                     st.warning("No results selected. Please select at least one result to process.")
