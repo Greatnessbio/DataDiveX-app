@@ -108,13 +108,24 @@ def exa_search(query, category, start_date, end_date):
 
 def get_jina_reader_content(url):
   jina_url = f"https://r.jina.ai/{url}"
+  headers = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+      'Accept': 'application/json'
+  }
   try:
-      response = http.get(jina_url, headers=HEADERS)
+      response = http.get(jina_url, headers=headers)
       response.raise_for_status()
       time.sleep(3)  # 3-second delay between requests
-      return response.json()
+      content = response.json()
+      return {
+          'text': content.get('text', 'No content available'),
+          'summary': content.get('summary', 'No summary available')
+      }
   except requests.exceptions.RequestException as e:
-      return f"Failed to fetch content: {str(e)}"
+      return {
+          'text': f"Failed to fetch content: {str(e)}",
+          'summary': 'Error fetching summary'
+      }
 
 def login():
   st.title("Login to TrendSift+")
@@ -127,6 +138,7 @@ def login():
           if username == USERNAME and password == PASSWORD:
               st.session_state["logged_in"] = True
               st.success("Logged in successfully!")
+              st.experimental_rerun()
           else:
               st.error("Invalid username or password")
 
@@ -204,24 +216,20 @@ def main():
               st.session_state.processed_results = []
               for result in st.session_state.selected_results:
                   jina_content = get_jina_reader_content(result['Link'])
-                  if isinstance(jina_content, dict):
-                      result['full_content'] = jina_content.get('text', 'No content available')
-                      result['summary'] = jina_content.get('summary', 'No summary available')
-                  else:
-                      result['full_content'] = jina_content
-                      result['summary'] = 'Error fetching summary'
+                  result['full_content'] = jina_content['text']
+                  result['summary'] = jina_content['summary']
                   st.session_state.processed_results.append(result)
 
       # Display detailed results for selected items
       if st.session_state.processed_results:
           st.subheader("Detailed Results for Selected Items")
-          for result in st.session_state.processed_results:
+          for i, result in enumerate(st.session_state.processed_results):
               st.write(f"**Title:** {result['Title']}")
               st.write(f"**Source:** {result['Source']}")
               st.write(f"**Summary:** {result['summary']}")
               st.write(f"**Link:** [{result['Link']}]({result['Link']})")
               st.write("**Full Content:**")
-              st.text_area("", result['full_content'], height=300)
+              st.text_area(f"Content_{i}", result['full_content'], height=300)
               st.write("---")
 
 if __name__ == "__main__":
