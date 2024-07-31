@@ -28,7 +28,6 @@ def google_trends_search(query, timeframe):
     params = {
         "engine": "google_trends",
         "q": query,
-        "data_type": "TIMESERIES",
         "date": timeframe,
         "api_key": SERPAPI_KEY
     }
@@ -36,12 +35,7 @@ def google_trends_search(query, timeframe):
     try:
         response = requests.get("https://serpapi.com/search", params=params)
         response.raise_for_status()
-        data = response.json()
-        if "interest_over_time" in data:
-            return pd.DataFrame(data["interest_over_time"]["timeline_data"])
-        else:
-            st.warning("No interest over time data available.")
-            return None
+        return response.json()
     except requests.exceptions.RequestException as e:
         st.error(f"Error fetching Google Trends data: {e}")
         return None
@@ -142,12 +136,29 @@ def main():
                 st.subheader(f"Results for {search_type}")
                 
                 if search_type == "Google Trends":
-                    trend_data = google_trends_search(search_query, timeframes[selected_timeframe])
-                    if trend_data is not None and not trend_data.empty:
-                        trend_data['date'] = pd.to_datetime(trend_data['date'])
-                        trend_data['value'] = trend_data['values'].apply(lambda x: x[0]['value'])
-                        fig = px.line(trend_data, x='date', y='value', title=f"Interest over time for '{search_query}'")
+                    trends_data = google_trends_search(search_query, timeframes[selected_timeframe])
+                    if trends_data and "interest_over_time" in trends_data:
+                        df = pd.DataFrame(trends_data["interest_over_time"]["timeline_data"])
+                        df['date'] = pd.to_datetime(df['date'])
+                        df['value'] = df['values'].apply(lambda x: x[0]['value'])
+                        fig = px.line(df, x='date', y='value', title=f"Interest over time for '{search_query}'")
                         st.plotly_chart(fig)
+
+                        if "related_topics" in trends_data:
+                            st.write("Related Topics:")
+                            for topic_type in ["top", "rising"]:
+                                if topic_type in trends_data["related_topics"]:
+                                    st.write(f"{topic_type.capitalize()}:")
+                                    for topic in trends_data["related_topics"][topic_type]:
+                                        st.write(f"- {topic['topic']['title']}: {topic['value']}")
+
+                        if "related_queries" in trends_data:
+                            st.write("Related Queries:")
+                            for query_type in ["top", "rising"]:
+                                if query_type in trends_data["related_queries"]:
+                                    st.write(f"{query_type.capitalize()}:")
+                                    for query in trends_data["related_queries"][query_type]:
+                                        st.write(f"- {query['query']}: {query['value']}")
                 
                 elif search_type == "Serper Search":
                     search_results = serper_search(search_query, "search")
@@ -161,6 +172,8 @@ def main():
                                 st.write(f"**{result['title']}**")
                                 st.write(result['snippet'])
                                 st.write(f"[Link]({result['link']})")
+                                if 'position' in result:
+                                    st.write(f"Position: {result['position']}")
                             st.write("---")
                     else:
                         st.warning("No Serper Search results found.")
@@ -177,6 +190,9 @@ def main():
                                 st.write(f"**{result['title']}**")
                                 st.write(f"Authors: {result.get('authors', 'N/A')}")
                                 st.write(f"Publication: {result.get('publication', 'N/A')}")
+                                st.write(f"Snippet: {result.get('snippet', 'N/A')}")
+                                st.write(f"Cited By: {result.get('citedBy', 'N/A')}")
+                                st.write(f"Year: {result.get('year', 'N/A')}")
                                 st.write(f"[Link]({result['link']})")
                             st.write("---")
                     else:
@@ -193,8 +209,14 @@ def main():
                                 st.checkbox("Select", key=f"exa_{category}_{i}", value=False)
                             with col2:
                                 st.write(f"**{result.get('title', 'No title')}**")
-                                st.write(f"[{result.get('url', 'No URL')}]({result.get('url', 'No URL')})")
-                                st.write(result.get('text', 'No text')[:500] + "...")
+                                st.write(f"URL: [{result.get('url', 'No URL')}]({result.get('url', 'No URL')})")
+                                st.write(f"Published Date: {result.get('publishedDate', 'N/A')}")
+                                st.write(f"Author: {result.get('author', 'N/A')}")
+                                st.write(f"Text: {result.get('text', 'No text')[:1000]}...")
+                                if 'highlights' in result:
+                                    st.write("Highlights:")
+                                    for highlight in result['highlights']:
+                                        st.write(f"- {highlight}")
                             st.write("---")
                     else:
                         st.warning(f"No results found for Exa search in category: {category}")
@@ -213,7 +235,7 @@ def main():
                 st.subheader("Selected Results for Further Processing")
                 for result in selected_results:
                     st.write(f"**{result.get('title', 'No title')}**")
-                    st.write(result.get('snippet', result.get('text', 'No content'))[:500] + "...")
+                    st.write(result.get('snippet', result.get('text', 'No content'))[:1000] + "...")
                     st.write(f"[Source]({result.get('link', result.get('url', '#'))})")
                     st.write("---")
             else:
