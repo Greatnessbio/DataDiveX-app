@@ -96,7 +96,8 @@ def login():
           if username == USERNAME and password == PASSWORD:
               st.session_state["logged_in"] = True
               st.success("Logged in successfully!")
-              st.experimental_rerun()  # Use experimental_rerun
+              # Instead of rerunning, clear the form and let the main function handle the redirect
+              st.empty() # This will clear the form
           else:
               st.error("Invalid username or password")
 
