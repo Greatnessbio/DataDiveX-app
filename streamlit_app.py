@@ -23,10 +23,12 @@ except KeyError as e:
 # Initialize session state
 if 'search_results' not in st.session_state:
   st.session_state.search_results = {}
-if 'last_request_time' not in st.session_state:
-  st.session_state.last_request_time = 0
+if 'quick_results' not in st.session_state:
+  st.session_state.quick_results = []
 if 'selected_results' not in st.session_state:
   st.session_state.selected_results = []
+if 'processed_results' not in st.session_state:
+  st.session_state.processed_results = []
 
 # Simple rate limiting function
 def rate_limited(max_per_minute):
@@ -34,6 +36,8 @@ def rate_limited(max_per_minute):
   def decorator(func):
       def wrapper(*args, **kwargs):
           now = time.time()
+          if 'last_request_time' not in st.session_state:
+              st.session_state.last_request_time = 0
           elapsed = now - st.session_state.last_request_time
           left_to_wait = min_interval - elapsed
           if left_to_wait > 0:
@@ -132,7 +136,7 @@ def login():
       if submit_button:
           if username == USERNAME and password == PASSWORD:
               st.session_state["logged_in"] = True
-              st.empty()
+              st.experimental_rerun()
           else:
               st.error("Invalid username or password")
 
@@ -145,29 +149,30 @@ def main():
   else:
       st.title("TrendSift+: Multi-Source Research Tool")
 
-      st.sidebar.header("Search Parameters")
-      search_query = st.sidebar.text_input("Enter search term")
-      
-      search_types = ["Google Trends", "Serper Search", "Serper Scholar", "Exa Company", "Exa Research Paper", "Exa News", "Exa Tweet"]
-      selected_search_types = st.sidebar.multiselect("Select search types", search_types, default=["Serper Search", "Exa News"])
-      
-      timeframes = {
-          "Past 7 days": "now 7-d",
-          "Past 30 days": "today 1-m",
-          "Past 90 days": "today 3-m",
-          "Past 12 months": "today 12-m",
-          "Past 5 years": "today 5-y"
-      }
-      selected_timeframe = st.sidebar.selectbox("Select time range", list(timeframes.keys()))
+      with st.form("search_form"):
+          st.header("Search Parameters")
+          search_query = st.text_input("Enter search term")
+          
+          search_types = ["Google Trends", "Serper Search", "Serper Scholar", "Exa Company", "Exa Research Paper", "Exa News", "Exa Tweet"]
+          selected_search_types = st.multiselect("Select search types", search_types, default=["Serper Search", "Exa News"])
+          
+          timeframes = {
+              "Past 7 days": "now 7-d",
+              "Past 30 days": "today 1-m",
+              "Past 90 days": "today 3-m",
+              "Past 12 months": "today 12-m",
+              "Past 5 years": "today 5-y"
+          }
+          selected_timeframe = st.selectbox("Select time range", list(timeframes.keys()))
 
-      search_button = st.sidebar.button("Search")
+          search_button = st.form_submit_button("Search")
 
       if search_button and search_query:
           st.session_state.search_results = {} 
+          st.session_state.quick_results = []
           
           # Perform initial search and display quick results
           with st.spinner("Searching..."):
-              quick_results = []
               for search_type in selected_search_types:
                   if search_type == "Google Trends":
                       results = google_trends_search(search_query, timeframes[selected_timeframe])
@@ -180,47 +185,50 @@ def main():
                   elif search_type in ("Serper Search", "Serper Scholar"):
                       results = serper_search(search_query, search_type.split()[-1].lower())
                       if results and 'organic' in results:
-                          quick_results.extend([{'Source': search_type, 'Title': r['title'], 'Link': r['link']} for r in results['organic'][:5]])
+                          st.session_state.quick_results.extend([{'Source': search_type, 'Title': r['title'], 'Link': r['link']} for r in results['organic'][:5]])
                   elif search_type.startswith("Exa"):
                       category = search_type.split()[-1].lower()
                       results = exa_search(search_query, category, 
                                            (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
                                            datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%fZ"))
                       if results and 'results' in results:
-                          quick_results.extend([{'Source': search_type, 'Title': r['title'], 'Link': r['url']} for r in results['results'][:5]])
+                          st.session_state.quick_results.extend([{'Source': search_type, 'Title': r['title'], 'Link': r['url']} for r in results['results'][:5]])
                   
                   st.session_state.search_results[search_type] = results
 
-              if quick_results:
-                  st.subheader("Quick Results")
-                  df = pd.DataFrame(quick_results)
-                  df['Selected'] = False
-                  edited_df = st.data_editor(df, column_config={
-                      "Selected": st.column_config.CheckboxColumn(default=False),
-                      "Source": st.column_config.TextColumn(width="medium"),
-                      "Title": st.column_config.TextColumn(width="large"),
-                      "Link": st.column_config.TextColumn(width="large")
-                  }, hide_index=True, use_container_width=True, num_rows="dynamic")
-                  st.session_state.selected_results = edited_df[edited_df['Selected']].to_dict('records')
+      if st.session_state.quick_results:
+          st.subheader("Quick Results")
+          df = pd.DataFrame(st.session_state.quick_results)
+          df['Selected'] = False
+          edited_df = st.data_editor(df, column_config={
+              "Selected": st.column_config.CheckboxColumn(default=False),
+              "Source": st.column_config.TextColumn(width="medium"),
+              "Title": st.column_config.TextColumn(width="large"),
+              "Link": st.column_config.TextColumn(width="large")
+          }, hide_index=True, use_container_width=True, num_rows="dynamic")
+          st.session_state.selected_results = edited_df[edited_df['Selected']].to_dict('records')
 
-          if st.button("Process Selected Results"):
-              # Process and scrape selected results
-              with st.spinner("Processing and summarizing selected results..."):
-                  for result in st.session_state.selected_results:
-                      jina_content = jina_reader(result['Link'])
-                      result['full_content'] = jina_content['text']
-                      result['summary'] = jina_content['summary']
-
-              # Display detailed results for selected items
-              st.subheader("Detailed Results for Selected Items")
+      if st.button("Process Selected Results"):
+          # Process and scrape selected results
+          with st.spinner("Processing and summarizing selected results..."):
+              st.session_state.processed_results = []
               for result in st.session_state.selected_results:
-                  st.write(f"**Title:** {result['Title']}")
-                  st.write(f"**Source:** {result['Source']}")
-                  st.write(f"**Summary:** {result['summary']}")
-                  st.write(f"**Link:** [{result['Link']}]({result['Link']})")
-                  st.write("**Full Content:**")
-                  st.write(result['full_content'])
-                  st.write("---")
+                  jina_content = jina_reader(result['Link'])
+                  result['full_content'] = jina_content['text']
+                  result['summary'] = jina_content['summary']
+                  st.session_state.processed_results.append(result)
+
+      # Display detailed results for selected items
+      if st.session_state.processed_results:
+          st.subheader("Detailed Results for Selected Items")
+          for result in st.session_state.processed_results:
+              st.write(f"**Title:** {result['Title']}")
+              st.write(f"**Source:** {result['Source']}")
+              st.write(f"**Summary:** {result['summary']}")
+              st.write(f"**Link:** [{result['Link']}]({result['Link']})")
+              st.write("**Full Content:**")
+              st.write(result['full_content'])
+              st.write("---")
 
 if __name__ == "__main__":
   main()
