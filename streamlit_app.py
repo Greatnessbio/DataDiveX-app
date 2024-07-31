@@ -22,6 +22,8 @@ except KeyError as e:
 # Initialize session state
 if 'search_results' not in st.session_state:
     st.session_state.search_results = {}
+if 'search_performed' not in st.session_state:
+    st.session_state.search_performed = False
 
 @st.cache_data(ttl=3600)
 def google_trends_search(query, timeframe):
@@ -131,6 +133,7 @@ def main():
 
         if search_button and search_query:
             st.session_state.search_results = {}  # Reset search results
+            st.session_state.search_performed = True
             
             for search_type in selected_search_types:
                 st.subheader(f"Results for {search_type}")
@@ -159,22 +162,23 @@ def main():
                                     st.write(f"{query_type.capitalize()}:")
                                     for query in trends_data["related_queries"][query_type]:
                                         st.write(f"- {query['query']}: {query['value']}")
+                    else:
+                        st.warning("No Google Trends data available for the given query and time range.")
                 
                 elif search_type == "Serper Search":
                     search_results = serper_search(search_query, "search")
                     if search_results and "organic" in search_results:
                         st.session_state.search_results[search_type] = search_results["organic"]
                         for i, result in enumerate(search_results["organic"]):
-                            col1, col2 = st.columns([0.1, 0.9])
-                            with col1:
-                                st.checkbox("Select", key=f"serper_search_{i}", value=False)
-                            with col2:
-                                st.write(f"**{result['title']}**")
-                                st.write(result['snippet'])
-                                st.write(f"[Link]({result['link']})")
+                            with st.expander(f"Result {i+1}: {result['title']}"):
+                                st.checkbox("Select for further processing", key=f"serper_search_{i}")
+                                st.write(f"**Title:** {result['title']}")
+                                st.write(f"**Snippet:** {result['snippet']}")
+                                st.write(f"**Link:** [{result['link']}]({result['link']})")
                                 if 'position' in result:
-                                    st.write(f"Position: {result['position']}")
-                            st.write("---")
+                                    st.write(f"**Position:** {result['position']}")
+                                if 'date' in result:
+                                    st.write(f"**Date:** {result['date']}")
                     else:
                         st.warning("No Serper Search results found.")
                 
@@ -183,18 +187,15 @@ def main():
                     if scholar_results and "organic" in scholar_results:
                         st.session_state.search_results[search_type] = scholar_results["organic"]
                         for i, result in enumerate(scholar_results["organic"]):
-                            col1, col2 = st.columns([0.1, 0.9])
-                            with col1:
-                                st.checkbox("Select", key=f"serper_scholar_{i}", value=False)
-                            with col2:
-                                st.write(f"**{result['title']}**")
-                                st.write(f"Authors: {result.get('authors', 'N/A')}")
-                                st.write(f"Publication: {result.get('publication', 'N/A')}")
-                                st.write(f"Snippet: {result.get('snippet', 'N/A')}")
-                                st.write(f"Cited By: {result.get('citedBy', 'N/A')}")
-                                st.write(f"Year: {result.get('year', 'N/A')}")
-                                st.write(f"[Link]({result['link']})")
-                            st.write("---")
+                            with st.expander(f"Result {i+1}: {result['title']}"):
+                                st.checkbox("Select for further processing", key=f"serper_scholar_{i}")
+                                st.write(f"**Title:** {result['title']}")
+                                st.write(f"**Authors:** {result.get('authors', 'N/A')}")
+                                st.write(f"**Publication:** {result.get('publication', 'N/A')}")
+                                st.write(f"**Snippet:** {result.get('snippet', 'N/A')}")
+                                st.write(f"**Cited By:** {result.get('citedBy', 'N/A')}")
+                                st.write(f"**Year:** {result.get('year', 'N/A')}")
+                                st.write(f"**Link:** [{result['link']}]({result['link']})")
                     else:
                         st.warning("No Serper Scholar results found.")
                 
@@ -204,42 +205,40 @@ def main():
                     if exa_results and "results" in exa_results:
                         st.session_state.search_results[search_type] = exa_results['results']
                         for i, result in enumerate(exa_results['results']):
-                            col1, col2 = st.columns([0.1, 0.9])
-                            with col1:
-                                st.checkbox("Select", key=f"exa_{category}_{i}", value=False)
-                            with col2:
-                                st.write(f"**{result.get('title', 'No title')}**")
-                                st.write(f"URL: [{result.get('url', 'No URL')}]({result.get('url', 'No URL')})")
-                                st.write(f"Published Date: {result.get('publishedDate', 'N/A')}")
-                                st.write(f"Author: {result.get('author', 'N/A')}")
-                                st.write(f"Text: {result.get('text', 'No text')[:1000]}...")
+                            with st.expander(f"Result {i+1}: {result.get('title', 'No title')}"):
+                                st.checkbox("Select for further processing", key=f"exa_{category}_{i}")
+                                st.write(f"**Title:** {result.get('title', 'No title')}")
+                                st.write(f"**URL:** [{result.get('url', 'No URL')}]({result.get('url', 'No URL')})")
+                                st.write(f"**Published Date:** {result.get('publishedDate', 'N/A')}")
+                                st.write(f"**Author:** {result.get('author', 'N/A')}")
+                                st.write(f"**Text:** {result.get('text', 'No text')[:1000]}...")
                                 if 'highlights' in result:
-                                    st.write("Highlights:")
+                                    st.write("**Highlights:**")
                                     for highlight in result['highlights']:
                                         st.write(f"- {highlight}")
-                            st.write("---")
                     else:
                         st.warning(f"No results found for Exa search in category: {category}")
 
         # Process selected results
-        if st.button("Process Selected Results"):
-            selected_results = []
-            for search_type, results in st.session_state.search_results.items():
-                if search_type == "Serper Search" or search_type == "Serper Scholar":
-                    selected_results.extend([result for i, result in enumerate(results) if st.session_state.get(f"{search_type.lower().replace(' ', '_')}_{i}", False)])
-                elif search_type.startswith("Exa"):
-                    category = search_type.split(" ")[-1].lower()
-                    selected_results.extend([result for i, result in enumerate(results) if st.session_state.get(f"exa_{category}_{i}", False)])
-            
-            if selected_results:
-                st.subheader("Selected Results for Further Processing")
-                for result in selected_results:
-                    st.write(f"**{result.get('title', 'No title')}**")
-                    st.write(result.get('snippet', result.get('text', 'No content'))[:1000] + "...")
-                    st.write(f"[Source]({result.get('link', result.get('url', '#'))})")
-                    st.write("---")
-            else:
-                st.warning("No results selected. Please select at least one result to process.")
+        if st.session_state.search_performed:
+            if st.button("Process Selected Results"):
+                selected_results = []
+                for search_type, results in st.session_state.search_results.items():
+                    if search_type == "Serper Search" or search_type == "Serper Scholar":
+                        selected_results.extend([result for i, result in enumerate(results) if st.session_state.get(f"{search_type.lower().replace(' ', '_')}_{i}", False)])
+                    elif search_type.startswith("Exa"):
+                        category = search_type.split(" ")[-1].lower()
+                        selected_results.extend([result for i, result in enumerate(results) if st.session_state.get(f"exa_{category}_{i}", False)])
+                
+                if selected_results:
+                    st.subheader("Selected Results for Further Processing")
+                    for result in selected_results:
+                        st.write(f"**{result.get('title', 'No title')}**")
+                        st.write(result.get('snippet', result.get('text', 'No content'))[:1000] + "...")
+                        st.write(f"[Source]({result.get('link', result.get('url', '#'))})")
+                        st.write("---")
+                else:
+                    st.warning("No results selected. Please select at least one result to process.")
 
 if __name__ == "__main__":
     main()
